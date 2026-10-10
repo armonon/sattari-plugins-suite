@@ -171,13 +171,25 @@ jobs:
               -DONNXRUNTIME_INCLUDE_DIR="$ort_dir/include" \
               -DONNXRUNTIME_LIB="$ort_dir/lib/libonnxruntime.dylib"
             grep -q -- '-DSATTARI_HAS_ONNX=1' build/${{ matrix.plugin }}/build.ninja
+          elif [ "${{ matrix.plugin }}" = "song-key" ]; then
+            # The estimator contract belongs to the root suite, not the plugin-only tree.
+            cmake -S . -B build/${{ matrix.plugin }} -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF \
+              -DSATTARI_INCLUDE_STEMDECK=OFF -DSATTARI_USE_ONNX=OFF \
+              -DSATTARI_AUTOPITCH_ENABLE_ARA=OFF -DSATTARI_SONGKEY_ENABLE_ARA=OFF \
+              -DBUILD_TESTING=ON
           else
             cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} \
               -G Ninja -DCMAKE_BUILD_TYPE=Release
           fi
 
       - name: Build plugin (AU/VST3/Standalone)
-        run: cmake --build build/${{ matrix.plugin }} --config Release -j"$(sysctl -n hw.ncpu)"
+        run: |
+          if [ "${{ matrix.plugin }}" = "song-key" ]; then
+            cmake --build build/${{ matrix.plugin }} --config Release --target SattariSongKey_All -j"$(sysctl -n hw.ncpu)"
+          else
+            cmake --build build/${{ matrix.plugin }} --config Release -j"$(sysctl -n hw.ncpu)"
+          fi
 
       - name: Embed and verify Auto Pitch neural runtime
         if: ${{ matrix.plugin == 'auto-pitch' }}

@@ -1,22 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Hardened-runtime entitlements for the Sattari audio plugins.
-
-  Audio plugins are loaded into third-party hosts (Logic, Ableton, etc.) and
-  several of ours embed a self-contained ONNX Runtime dylib in
-  Contents/Frameworks. Under the hardened runtime, macOS library validation
-  would refuse to load a library whose Team ID differs from the host's, so we
-  disable library validation for the plugin process. Everything is still signed
-  with your Developer ID and notarized; this only relaxes the same-team library
-  check, which is standard and required for distributable audio plugins.
+  Plug-ins inherit the host process's entitlements; their own signatures cannot
+  relax the host's library validation or grant microphone permission. Embedded
+  libraries are signed with the plug-in's identity. Standalone audio apps use
+  sattari-standalone.entitlements instead.
 -->
 <plist version="1.0">
 <dict>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-    <!-- JUCE/host graphics stacks can allocate JIT-style executable pages. -->
-    <key>com.apple.security.cs.allow-jit</key>
-    <true/>
 </dict>
 </plist>

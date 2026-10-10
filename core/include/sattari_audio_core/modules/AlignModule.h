@@ -64,9 +64,9 @@ public:
         using P = juce::AudioParameterFloat;
         using R = juce::NormalisableRange<float>;
 
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "autoAlign", 1), "Auto Align", true));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "lock",      1), "Lock Alignment", false));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "bypass",    1), "Bypass", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "autoAlign", 1), "Auto Align", true));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "lock",      1), "Lock Alignment", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "bypass",    1), "Bypass", false));
         // v1 = bulk-shift (single lag for the whole stream), v2 = DTW warping
         // (time-varying delay that follows local drift). v2 is alpha - the warp
         // path is recomputed every search cadence and smoothed into the delay so

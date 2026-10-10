@@ -13,7 +13,7 @@
 #include <vector>
 
 // =============================================================================
-//  RoyalChainView — every control at a fixed logical rect on a 1100 x 760 canvas.
+//  RoyalChainView — every control at a fixed logical rect on a 1100 x 800 canvas.
 //  The editor scales it with one AffineTransform, so the layout never reflows
 //  and the Compass keeps its 1:1 field blit at the default size.
 // =============================================================================
@@ -33,7 +33,7 @@ public:
     ModuleDeck& deck() noexcept { return deckComp; }
     void appendCaptionChecks (std::vector<rc::theme::CaptionCheck>&) const;
 
-    static constexpr int kWidth = 1100, kHeight = 760;
+    static constexpr int kWidth = 1100, kHeight = 800;
 
 private:
     void timerCallback() override { poll(); }
@@ -52,6 +52,8 @@ private:
     juce::TextButton savePresetButton { "SAVE" };
     sattari::ui::SattariABRow abRow;
     juce::TextButton midiLearnButton { "MIDI" };
+    juce::ToggleButton original { "Original" }, levelMatch { "Level match" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> originalAttachment, matchAttachment;
 
     VocalCrownCompass compassComp;
     RoyalSpine spineComp;

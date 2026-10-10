@@ -43,7 +43,7 @@ public:
     void addParameters (ParamList& out, const juce::String& prefix) override
     {
         using FP = juce::AudioParameterFloat;
-        using BP = juce::AudioParameterBool;
+        using BP = sattari::parameters::Bool;
         using R  = juce::NormalisableRange<float>;
 
         out.push_back (std::make_unique<BP> (juce::ParameterID (prefix + "sync", 1), "Tempo Sync", true));

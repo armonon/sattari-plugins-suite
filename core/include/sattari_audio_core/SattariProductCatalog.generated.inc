@@ -49,3 +49,5 @@
 { "granulator", "Sattari Granulator", "Granular instrument", kAccent },
 { "brain", "Sattari Compass", "Session conductor", kAccentBlue },
 { "glass-choir", "Sattari Glass Choir", "Creative vocal FX", kAccentViolet },
+{ "modular", "Sattari Modular FX", "Modular rack", kAccentAmber },
+{ "modular-instrument", "Sattari Modular Instrument", "Modular rack", kAccentAmber },

@@ -125,6 +125,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
 
 (function () {
   var id  = new URLSearchParams(location.search).get('id');
+  if (id === 'modular' || id === 'modular-instrument') { location.replace('modular.html' + (id === 'modular-instrument' ? '#instrument' : '')); return; }
   var lifecycle = {};
   (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (x) { lifecycle[x.id] = x; });
   var suiteNames = {};
@@ -132,7 +133,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     suiteNames[x.id] = x.name;
   });
   var all = (window.SATTARI_PLUGINS || []).filter(function (x) {
-    return lifecycle[x.id] && lifecycle[x.id].webVisible;
+    return lifecycle[x.id];
   }).map(function (x) { return Object.assign({}, x, lifecycle[x.id]); });
   var p   = all.filter(function (x) { return x.id === id; })[0];
   var el  = document.getElementById('content');
@@ -155,7 +156,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     ? '<figure class="product-visual"><img src="' + shot.src + '" alt="' + shot.alt +
       '" /><figcaption>REAL INTERFACE · CURRENT DEVELOPMENT BUILD</figcaption></figure>'
     : '';
-  var others = all.filter(function (x) { return x.id !== p.id && x.suite === p.suite; })
+  var others = all.filter(function (x) { return x.id !== p.id && x.suite === p.suite && x.webVisible; })
     .map(function (x) {
       return '<a class="more-card" href="plugin.html?id=' + encodeURIComponent(x.id) + '">' +
              '<span class="mi">' + SATTARI_LOGO(x.id) + '</span>' +
@@ -170,6 +171,8 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     '</div>' +
     '<p class="tagline">' + (p.tagline || '') + '</p>' +
     '<div class="tags">' + tags + '</div>' +
+    (['legacy', 'module', 'held', 'migration-pending'].indexOf(p.portfolioStatus) !== -1
+      ? '<p class="tagline">Portfolio status: ' + p.portfolioStatus + '. Existing plugin identities are retained; this is not a new standalone release. <a href="index.html#suite">View the consolidated lineup</a>.</p>' : '') +
     visual +
 
     '<div class="section"><div class="label">What it does</div>' +

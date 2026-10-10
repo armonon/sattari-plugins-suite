@@ -1,4 +1,5 @@
 #include "BrainProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "BrainEditor.h"
 #include <chrono>
 #include <cmath>
@@ -38,15 +39,15 @@ APVTS::ParameterLayout SattariBrainAudioProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
 
     // Publish master switch.
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "brainPublish", 1 }, "Publish to Suite", true));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "brainPublish", 1 }, "Publish to Suite", true));
 
     // Manual key override (detected key otherwise wins).
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "brainManual",      1 }, "Manual Key Override", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "brainManual",      1 }, "Manual Key Override", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "brainManualRoot",  1 }, "Manual Root",  rootChoices(),  0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "brainManualScale", 1 }, "Manual Scale", scaleChoices(), 0));
 
     // Reference tuning override (detected detune otherwise drives referenceHz).
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "brainRefOverride", 1 }, "Reference Override", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "brainRefOverride", 1 }, "Reference Override", false));
     p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "brainReferenceHz", 1 }, "Reference A (Hz)",
         juce::NormalisableRange<float> (415.0f, 466.0f, 0.1f), 440.0f));
 
@@ -62,7 +63,7 @@ APVTS::ParameterLayout SattariBrainAudioProcessor::createParameterLayout()
 
     // Appended to preserve every existing host parameter index. Automatic
     // energy can be locally overridden without weakening the detected context.
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "brainEnergyAuto", 1 }, "Automatic Energy", true));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "brainEnergyAuto", 1 }, "Automatic Energy", true));
 
     return { p.begin(), p.end() };
 }

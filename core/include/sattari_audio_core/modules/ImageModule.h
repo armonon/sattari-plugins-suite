@@ -44,11 +44,11 @@ public:
             R (60.0f, 800.0f, 1.0f, 0.4f), 250.0f));
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "xoverMidHi", 1), "Mid/High Xover",
             R (1200.0f, 12000.0f, 1.0f, 0.4f), 4000.0f));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "lowMono", 1), "Low Mono", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "lowMono", 1), "Low Mono", false));
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "lowMonoFreq", 1), "Low Mono Freq",
             R (40.0f, 400.0f, 1.0f, 0.4f), 120.0f));
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "haas", 1), "Haas / Ensemble", R (0.0f, 1.0f, 0.01f), 0.0f));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "monoAudition", 1), "Mono Audition", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "monoAudition", 1), "Mono Audition", false));
     }
 
     void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override

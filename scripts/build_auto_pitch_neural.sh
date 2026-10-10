@@ -14,6 +14,7 @@ mkdir -p "$validation_dir"
 cmake -S "$repo_root/plugins/auto-pitch" -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+  -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF \
   -DSATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND \
   -DSATTARI_USE_ONNX=ON \
   -DSATTARI_REQUIRE_ONNX=ON \

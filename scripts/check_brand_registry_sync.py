@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from gen_hub_manifest import deployment, validate
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "config" / "products.json"
@@ -32,8 +33,10 @@ def main() -> int:
     by_id = {p["id"]: p for p in products}
     errors: list[str] = []
 
-    if len(products) != 49 or len(by_id) != 49:
-        errors.append("catalog must contain 49 unique products")
+    try:
+        validate(catalog)
+    except ValueError as exc:
+        errors.append(str(exc))
 
     generated_brand = {
         pid: {"name": name, "category": category, "accent": accent}
@@ -61,15 +64,13 @@ def main() -> int:
     for pid in set(manifest_by_id) & expected_hub_ids:
         source = by_id[pid]
         built = manifest_by_id[pid]
-        for key in ("name", "category", "lifecycle", "shippingProfile"):
+        for key in ("name", "category", "lifecycle", "shippingProfile", "suite", "suiteRole", "portfolioStatus", "collections"):
             if built.get(key) != source.get(key):
                 errors.append(f"{pid}: Hub {key} drift")
-        cmake_text = (ROOT / "plugins" / pid / "CMakeLists.txt").read_text()
-        format_match = FORMATS.search(cmake_text)
-        expected_formats = (
-            format_match.group(1).split()
-            if format_match else ["AU", "VST3", "Standalone"]
-        )
+        _, _, expected_bundles = deployment(source)
+        expected_formats = [bundle["kind"] for bundle in expected_bundles]
+        if built.get("bundles") != expected_bundles:
+            errors.append(f"{pid}: Hub deployment paths drift")
         actual_formats = [bundle.get("kind") for bundle in built.get("bundles", [])]
         if actual_formats != expected_formats or built.get("formats") != expected_formats:
             errors.append(
@@ -96,13 +97,16 @@ def main() -> int:
     if {p["id"] for p in web_data} != set(by_id):
         errors.append("web lifecycle catalog ids differ from product catalog")
 
-    # --- the six-product grouping is an invariant, not a presentation detail ---
-    #  Forty-nine plugins are the implementation; six products are what anyone
-    #  buys. If a plugin can sit outside all six, the catalog quietly drifts back
-    #  to being a list of forty-nine things, which is the problem this solved.
     suite_ids = {s["id"] for s in catalog.get("suite", [])}
     if {s["id"] for s in web_suite} != suite_ids:
         errors.append("web suite differs from the catalog suite")
+    if web_assignment("SATTARI_COLLECTIONS") != catalog["collections"]:
+        errors.append("web collections differ from catalog")
+    for entry in web_data:
+        if entry["id"] in by_id:
+            for key in ("webVisible", "suite", "suiteRole", "portfolioStatus", "collections"):
+                if entry.get(key) != by_id[entry["id"]].get(key):
+                    errors.append(f"{entry['id']}: web {key} drift")
     orphans = sorted(
         p["id"] for p in products
         if p.get("suite") is None and p["lifecycle"] != "excluded"
@@ -123,10 +127,11 @@ def main() -> int:
                 f"suite {entry['id']}: primary should be [{entry['primary']}], got {primaries}")
     detailed_ids = set(re.findall(r'\bid:\s*"([^"]+)"', WEB_DETAILS.read_text()))
     visible_ids = {p["id"] for p in products if p["webVisible"]}
-    if detailed_ids & visible_ids != visible_ids:
+    detail_page_ids = visible_ids - {"modular", "modular-instrument"}
+    if detailed_ids & detail_page_ids != detail_page_ids:
         errors.append(
             "website detail data missing visible ids: "
-            + str(sorted(visible_ids - detailed_ids))
+            + str(sorted(detail_page_ids - detailed_ids))
         )
 
     ci = json.loads(CI.read_text())["include"]

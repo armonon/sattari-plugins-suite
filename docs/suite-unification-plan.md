@@ -12,6 +12,8 @@ source: Suite unification pass — shared core + realtime/DSP upgrades
 
 > Historical plan. The seven-plugin model was superseded on 2026-08-09 by the
 > six-product suite in `docs/six-product-suite.md` and `config/products.json`.
+> That lineup was itself superseded on 2026-10-02; the current record is
+> `docs/suite-consolidation-2026-10-02.md`.
 > StemDeck is outside the current suite scope. Keep this file only as the record
 > of the shared-core and realtime-safety work that led to the current platform.
 

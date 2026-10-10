@@ -69,14 +69,14 @@ public:
         f ("mix",          "Mix",             0.0f, 100.0f,  100.0f, "%");
         f ("sidechainHpf", "Sidechain HPF",  20.0f, 250.0f,   65.0f, "Hz");
         f ("lookahead",    "Lookahead",       0.0f, 10.0f,     0.0f, "ms");
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "external", 1), "Use External Sidechain", true));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "listen", 1), "Solo Detector Listen", false));
 
         // Tempo-synced "volume shaper" ducking: a host-locked curve ducks the signal
         // on the beat with no sidechain needed — the classic EDM pump.
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "syncDuck", 1), "Tempo Sync Duck", false));
         out.push_back (std::make_unique<juce::AudioParameterChoice> (
             juce::ParameterID (prefix + "syncRate", 1), "Sync Rate", syncRateChoices(), 2));

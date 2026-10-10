@@ -60,6 +60,31 @@ import AppKit
         try fixtureBundle(sources.appendingPathComponent(bundle.relativeSourcePath), marker: "new")
         try fixtureBundle(destination.appendingPathComponent(bundle.installSubpath), marker: "old")
     }
+    var versioned = bundles
+    for index in versioned.indices { versioned[index].expectedVersion = "2.0.0" }
+    let guarded = HubProduct(id: product.id, name: product.name, category: product.category,
+        accent: nil, version: "2", status: "test", description: "Fixture only",
+        formats: product.formats, bundles: versioned, updateArchiveURL: nil,
+        updateArchiveSHA256: nil, updateArchiveBytes: nil, lifecycle: nil,
+        shippingProfile: "internal-candidate", suite: nil, suiteRole: nil)
+    try require(guarded.isCurrentInstallCandidate, "active shipping fixture was excluded from default installs")
+    var legacy = guarded
+    legacy.portfolioStatus = "legacy"
+    try require(!legacy.isCurrentInstallCandidate, "legacy fixture was included in default installs")
+    try require(!model.productIsAvailable(guarded), "missing binary version was accepted")
+    for bundle in versioned {
+        let plist = try PropertyListSerialization.data(fromPropertyList:
+            ["CFBundleName": "Fixture", "CFBundleShortVersionString": "2.0.0"], format: .xml, options: 0)
+        try plist.write(to: sources.appendingPathComponent(bundle.relativeSourcePath).appendingPathComponent("Contents/Info.plist"))
+    }
+    try require(model.productIsAvailable(guarded), "matching binary version was rejected")
+    let stale = try PropertyListSerialization.data(fromPropertyList:
+        ["CFBundleName": "Fixture", "CFBundleShortVersionString": "1.0.0"], format: .xml, options: 0)
+    try stale.write(to: sources.appendingPathComponent(versioned[0].relativeSourcePath).appendingPathComponent("Contents/Info.plist"))
+    try require(!model.productIsAvailable(guarded), "stale binary was offered as the merged build")
+    rejected = false
+    do { _ = try model.install(product: guarded) } catch { rejected = true }
+    try require(rejected, "stale binary was installed")
     // A directory at receipts.json deterministically simulates a write failure,
     // without depending on uid or touching actual user permissions.
     let receipt = storage.appendingPathComponent("receipts.json")

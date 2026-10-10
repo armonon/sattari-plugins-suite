@@ -17,6 +17,13 @@
 #include <ctime>
 #include <vector>
 
+#if defined(_WIN32)
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
+
 namespace
 {
 constexpr double pi = 3.1415926535897932384626433832795;
@@ -508,8 +515,26 @@ int main()
         std::vector<double> milliseconds;
         milliseconds.reserve (input.size() / cpuBlock);
         double maximumWallMs = 0.0;
+       #if defined(_WIN32)
+        double measuredCpuMs = 0.0;
+       #endif
         auto threadCpuMs = []
         {
+           #if defined(_WIN32)
+            FILETIME created {}, exited {}, kernel {}, user {};
+            if (! GetThreadTimes (GetCurrentThread(), &created, &exited, &kernel, &user))
+            {
+                std::fprintf (stderr, "Thread CPU clock unavailable; CPU budget NOT VERIFIED\n");
+                std::exit (1);
+            }
+            const auto millisecondsFor = [] (const FILETIME& time)
+            {
+                const auto ticks = (static_cast<unsigned long long> (time.dwHighDateTime) << 32)
+                                 | time.dwLowDateTime;
+                return static_cast<double> (ticks) * 1.0e-4;
+            };
+            return millisecondsFor (kernel) + millisecondsFor (user);
+           #else
             timespec time {};
             if (clock_gettime (CLOCK_THREAD_CPUTIME_ID, &time) != 0)
             {
@@ -517,6 +542,7 @@ int main()
                 std::exit (1);
             }
             return (double) time.tv_sec * 1000.0 + (double) time.tv_nsec * 1.0e-6;
+           #endif
         };
         for (int start = 0; start < (int) input.size(); start += cpuBlock)
         {
@@ -529,7 +555,15 @@ int main()
             const auto wallAfter = std::chrono::steady_clock::now();
             if (start > (int) sr)
             {
+               #if defined(_WIN32)
+                // Windows CPU accounting may be coarser than a callback. Wall
+                // durations conservatively bound CPU percentiles, never replace
+                // them with zero-valued CPU samples or converted cycle counts.
+                measuredCpuMs += after - before;
+                milliseconds.push_back (std::chrono::duration<double, std::milli> (wallAfter - wallBefore).count());
+               #else
                 milliseconds.push_back (after - before);
+               #endif
                 maximumWallMs = std::max (maximumWallMs,
                     std::chrono::duration<double, std::milli> (wallAfter - wallBefore).count());
             }
@@ -541,13 +575,19 @@ int main()
         double mean = 0.0;
         for (double value : milliseconds) mean += value;
         mean /= (double) milliseconds.size();
+       #if defined(_WIN32)
+        std::printf ("Windows measured thread CPU mean %.4f ms; conservative wall bounds 48k/64: mean %.4f ms, p95 %.4f ms, p99 %.4f ms, max %.3f ms\n",
+                     measuredCpuMs / (double) milliseconds.size(), mean, p95, p99, maximum);
+       #else
         const double callbackMs = 1000.0 * cpuBlock / sr;
         std::printf ("thread CPU 48k/64: mean %.4f ms (%.1f%%), p95 %.4f ms (%.1f%%), p99 %.4f ms (%.1f%%), max %.3f ms; wall max %.3f ms\n",
                      mean, 100.0 * mean / callbackMs, p95, 100.0 * p95 / callbackMs,
                      p99, 100.0 * p99 / callbackMs, maximum, maximumWallMs);
+       #endif
         // Keep the CPU thresholds unchanged. Wall time is separately reported:
         // a heavily loaded machine can deschedule a non-real-time test process;
         // a passing CPU gate is not evidence of dropout-free host monitoring.
+        // Windows applies the same limits to stricter wall upper bounds.
         if (mean > 0.25 || p95 > 0.25 || p99 > 0.75) ++failures;
     }
 

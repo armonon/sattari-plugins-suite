@@ -27,11 +27,12 @@ public:
         tracks = processor.linkedTracks();
         if (tracks.size() < 2 || tracks.size() > 64) { status = "Link 2 to 64 tracks to analyze a mix."; return; }
         analysis = juce::Uuid().toString(); plan = {}; mode = Mode::draft;
+        lastProgress = -1; progressTime = juce::Time::getMillisecondCounterHiRes();
         analysisMembers.clear();
         for (const auto& t : tracks)
         {
             auto c = object(); put (c, "action", "analyze"); put (c, "token", analysis); put (c, "seconds", seconds);
-            if (! processor.sendCommand (t.id, c)) { status = "Could not start every track. Retry analysis."; analysis.clear(); return; }
+            if (! processor.sendCommand (t.id, c)) { cancelAnalysis(); status = "Could not start every track. Analysis cancelled; retry."; return; }
             analysisMembers.add (t.id);
         }
         status = "Analyzing group";
@@ -55,6 +56,12 @@ public:
         plan = sattari::automix::makePlan (tracks, processor.trackSnapshot().capture);
         mode = Mode::draft;
         status = plan.valid() ? "Proposal ready" : plan.error;
+        if (plan.valid())
+        {
+            juce::String summary = "Proposal: ";
+            for (const auto& s : plan.tracks) summary += s.source.name + " " + juce::String (s.proposed.gain, 1) + " dB (" + s.reason + "); ";
+            processor.recordDecision (summary);
+        }
     }
 
     void audition (bool proposed) { dispatch (proposed ? Mode::proposed : Mode::original, false); }
@@ -92,6 +99,7 @@ public:
                 pending.clear(); mode = nextMode;
                 status = mode == Mode::proposed ? "Auditioning proposal" : mode == Mode::original ? "Auditioning original"
                     : mode == Mode::kept ? "Mix kept" : "Original restored";
+                processor.recordDecision (status);
                 if (clearOnComplete) plan = {};
             }
         }
@@ -102,15 +110,28 @@ public:
             for (const auto& id : analysisMembers)
             {
                 const auto* t = find (id);
-                if (t == nullptr) { analysis.clear(); status = "A track left the group. Analyze again."; return; }
+                if (t == nullptr) { cancelAnalysis(); status = "A track left the group. Analysis cancelled; analyze again."; return; }
                 ready = ready && t->capture == analysis && t->measured.complete;
                 progress = juce::jmin (progress, t->capture == analysis ? t->measured.progress : 0.0f);
             }
             status = "Analyzing group: " + juce::String (juce::roundToInt (progress * 100)) + "%";
+            if (progress > lastProgress) { lastProgress = progress; progressTime = juce::Time::getMillisecondCounterHiRes(); }
+            else if (juce::Time::getMillisecondCounterHiRes() - progressTime > 4000) status = "Waiting for audio on every linked track (" + juce::String (juce::roundToInt (progress * 100)) + "%)";
             if (ready) { analysis.clear(); buildProposal(); }
         }
         else if (! busy() && plan.tracks.empty() && status == "No mix group")
             status = juce::String ((int) tracks.size()) + " linked tracks";
+        if (! busy() && ! analyzing() && mode == Mode::draft && plan.valid())
+        {
+            bool stale = tracks.size() != plan.tracks.size();
+            for (const auto& s : plan.tracks)
+            {
+                const auto* t = find (s.source.id);
+                stale = stale || t == nullptr || (t && (t->measured.invalid || t->capture != s.source.capture
+                    || t->role != s.source.role || t->locked != s.source.locked || t->isBus != s.source.isBus || ! equivalent (t->settings, s.source.settings)));
+            }
+            if (stale) { plan.error = "Proposal is stale. Analyze the current group again."; status = plan.error; }
+        }
     }
 
     void cancelAnalysis()
@@ -158,7 +179,7 @@ private:
         for (const auto& s : plan.tracks)
         {
             const auto* t = find (s.source.id);
-            if (t == nullptr || t->role != s.source.role || t->locked != s.source.locked)
+            if (t == nullptr || t->role != s.source.role || t->locked != s.source.locked || t->isBus != s.source.isBus)
             { status = "Track roles or locks changed. Build a new proposal."; waiting.clear(); return; }
             Settings expected = mode == Mode::proposed || mode == Mode::kept ? s.proposed : s.source.settings;
             if (mode == Mode::proposed || mode == Mode::original)
@@ -203,6 +224,8 @@ private:
     juce::StringArray analysisMembers;
     std::vector<Waiting> waiting;
     double deadline = 0;
+    double progressTime = 0;
+    float lastProgress = -1;
     float appliedTrim = 0;
     Mode nextMode = Mode::draft;
     bool clearOnComplete = false;

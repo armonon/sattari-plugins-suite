@@ -1557,13 +1557,13 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"amount",0.9f},{"speed",0.75f},
         {"doNoHarm",1},{"formantPreserve",1},{"flexTune",0.12f},
         {"transition",0.7f},{"humanize",0.08f},{"vibrato",0.55f} });
-    addWorkflow ("Harmony · Pop Stack", PV {
+    addWorkflow (juce::String::fromUTF8 ("Harmony \xc2\xb7 Pop Stack"), PV {
         {"harmonyMode",0},{"h1Enable",1},{"h2Enable",1},
         {"h1Role",0},{"h2Role",1},{"h1Level",-8.0f},{"h2Level",-9.0f},
         {"h1Pan",-0.32f},{"h2Pan",0.32f},{"harmonyMix",0.72f},
         {"harmonyHumanPitch",4.0f},{"harmonyHumanTime",6.0f},
         {"harmonyEnsemble",0.16f},{"harmonyEnsembleSpread",0.62f} });
-    addWorkflow ("Harmony · Wide Choir", PV {
+    addWorkflow (juce::String::fromUTF8 ("Harmony \xc2\xb7 Wide Choir"), PV {
         {"harmonyMode",0},{"h1Enable",1},{"h2Enable",1},{"h3Enable",1},{"h4Enable",1},
         {"h1Role",0},{"h2Role",1},{"h3Role",2},{"h4Role",3},
         {"h1Level",-10.0f},{"h2Level",-10.0f},{"h3Level",-13.0f},{"h4Level",-13.0f},
@@ -1571,7 +1571,7 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"harmonyEnsemble",0.72f},{"harmonyEnsembleDepth",11.0f},
         {"harmonyEnsembleRate",0.28f},{"harmonyEnsembleSpread",1.0f},
         {"harmonyLowCut",120.0f},{"harmonyHighCut",13500.0f} });
-    addWorkflow ("Harmony · MIDI Choir", PV {
+    addWorkflow (juce::String::fromUTF8 ("Harmony \xc2\xb7 MIDI Choir"), PV {
         {"harmonyMode",2},{"h1Enable",1},{"h2Enable",1},{"h3Enable",1},{"h4Enable",1},
         {"h1Level",-9.0f},{"h2Level",-9.0f},{"h3Level",-9.0f},{"h4Level",-9.0f},
         {"harmonyMix",0.76f},{"harmonyHumanPitch",3.0f},{"harmonyHumanTime",5.0f},

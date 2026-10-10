@@ -1,0 +1,67 @@
+name: Product Upgrade Builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.plugin }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+        plugin: [modular, mix, royal-chain]
+        include:
+          - plugin: modular
+            targets: SattariModularBuild
+          - plugin: mix
+            targets: SattariMix_All SattariMixProductContract SattariMixAutoMixContract SattariMixUIContract
+          - plugin: royal-chain
+            targets: SattariRoyalChain_All RoyalChainProductContract RoyalChainTuneRenderContract
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch pinned JUCE
+        run: git submodule update --init --depth 1 third_party/JUCE
+      - name: Configure macOS universal
+        if: runner.os == 'macOS'
+        run: cmake -S plugins/${{ matrix.plugin }} -B build/native -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=OFF -DBUILD_TESTING=ON
+      - name: Configure Windows x64
+        if: runner.os == 'Windows'
+        run: cmake -S plugins/${{ matrix.plugin }} -B build/native -G "Visual Studio 17 2022" -A x64 -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=OFF -DBUILD_TESTING=ON
+      - name: Build plugins and contracts
+        run: cmake --build build/native --config Release --target ${{ matrix.targets }} --parallel 3
+      - name: Run contracts
+        run: ctest --test-dir build/native -C Release --output-on-failure --no-tests=error
+      - name: Archive development binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/packages
+          formats=(VST3 Standalone)
+          if [ "$RUNNER_OS" = macOS ]; then formats+=(AU); fi
+          for artifact in build/native/Sattari*_artefacts/Release; do
+            name="$(basename "$(dirname "$artifact")")"
+            tar -czf "$PWD/build/packages/$name-development.tar.gz" -C "$artifact" "${formats[@]}"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-${{ matrix.plugin }}-${{ matrix.os }}
+          path: build/packages/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ matrix.plugin }}-${{ matrix.os }}
+          path: |
+            build/native/Testing/Temporary
+            build/native/product-verification
+            build/native/modular-verification
+            build/native/verification
+            build/native/ui-verification
+          retention-days: 14

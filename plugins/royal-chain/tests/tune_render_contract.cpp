@@ -226,18 +226,42 @@ std::vector<float> envelope (const juce::AudioBuffer<float>& buf, double sr)
     return d;
 }
 
-int estimateDelay (const juce::AudioBuffer<float>& in, const juce::AudioBuffer<float>& out, double sr, int maxLag)
+int correlationLag (const std::vector<float>& a, const std::vector<float>& b, int maxLag)
 {
-    const auto a = envelope (in, sr), b = envelope (out, sr);
     const int n = (int) std::min (a.size(), b.size());
-    int bestLag = 0; double best = -1.0;
-    for (int lag = 0; lag <= maxLag; ++lag)
+    if (n == 0) return 0;
+    int order = 0;
+    while ((1 << order) < 2 * n) ++order;
+    juce::dsp::FFT fft (order);
+    const int size = fft.getSize();
+    std::vector<float> left ((size_t) size * 2, 0.0f), right ((size_t) size * 2, 0.0f);
+    std::copy_n (a.begin(), n, left.begin());
+    std::copy_n (b.begin(), n, right.begin());
+    fft.performRealOnlyForwardTransform (left.data());
+    fft.performRealOnlyForwardTransform (right.data());
+    // Linear cross-correlation via JUCE FFT keeps this diagnostic from spending
+    // billions of iterations on long phrases. The actual DSP gates are unchanged.
+    for (int bin = 0; bin <= size / 2; ++bin)
     {
-        double acc = 0.0;
-        for (int i = 0; i + lag < n; ++i) acc += (double) a[(size_t) i] * b[(size_t) (i + lag)];
+        const size_t index = (size_t) bin * 2;
+        const float ar = left[index], ai = left[index + 1];
+        const float br = right[index], bi = right[index + 1];
+        left[index] = ar * br + ai * bi;
+        left[index + 1] = ar * bi - ai * br;
+    }
+    fft.performRealOnlyInverseTransform (left.data());
+    int bestLag = 0; double best = -1.0;
+    for (int lag = 0; lag <= std::min (maxLag, n - 1); ++lag)
+    {
+        const double acc = left[(size_t) lag];
         if (acc > best) { best = acc; bestLag = lag; }
     }
     return bestLag;
+}
+
+int estimateDelay (const juce::AudioBuffer<float>& in, const juce::AudioBuffer<float>& out, double sr, int maxLag)
+{
+    return correlationLag (envelope (in, sr), envelope (out, sr), maxLag);
 }
 
 bool allFinite (const juce::AudioBuffer<float>& b, float& rms)
@@ -437,6 +461,26 @@ int main (int argc, char** argv)
     Report rep;
     const bool engineApi = HasTuneLatency<TuneModule>::value;
     std::printf ("Royal Chain Tune render contract (%s TuneModule)\n", engineApi ? "live-engine" : "baseline");
+
+    for (int delay : { 0, 1, 31, 64, 127 })
+    {
+        std::vector<float> input (1024, 0.0f), output (1024, 0.0f);
+        for (int i = 0; i < 600; ++i)
+            input[(size_t) i] = 0.2f + 0.001f * (float) ((i * 179 + i * i * 7) % 401);
+        for (size_t i = 0; i + (size_t) delay < output.size(); ++i)
+            output[i + (size_t) delay] = input[i];
+        int bruteLag = 0; double peak = -1.0;
+        for (int lag = 0; lag <= 128; ++lag)
+        {
+            double value = 0.0;
+            for (size_t i = 0; i + (size_t) lag < input.size(); ++i)
+                value += (double) input[i] * output[i + (size_t) lag];
+            if (value > peak) { peak = value; bruteLag = lag; }
+        }
+        const int measured = correlationLag (input, output, 128);
+        rep.check ("unit: FFT lag matches brute force", measured == bruteLag && measured == delay,
+                   "expected " + juce::String (delay) + ", measured " + juce::String (measured));
+    }
 
     tuneModuleUnitChecks<TuneModule> (rep);
 

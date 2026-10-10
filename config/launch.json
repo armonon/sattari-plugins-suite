@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "name": "Sattari consolidated suite",
+  "catalogStatuses": ["active", "specialist"],
+  "publicReleaseApproved": false,
+  "requiredContracts": {
+    "auto-pitch": ["AutoPitchCoreContract", "AutoPitchRenderSmoke", "AutoPitchARAContract", "SattariAutoPitchBooleanStateContract"],
+    "song-key": ["SattariSongKeyEstimatorContract", "SongKeyFileAnalysisSmoke", "SongKeyARAContract", "SattariSongKeyBooleanStateContract"],
+    "mix": ["SattariMixProductContract", "SattariMixAutoMixContract", "SattariMixUIContract", "SattariMixBooleanStateContract"],
+    "sub-conjurer": ["SubConjurerContract", "SubConjurerUIContract", "SubConjurerBooleanStateContract"],
+    "side-chain-master": ["SideChainMasterCoreContract", "SideChainMasterBooleanStateContract"],
+    "royal-chain": ["RoyalChainProduct", "RoyalChainTuneRenderContract", "SattariRoyalChainBooleanStateContract"],
+    "maqam": ["MaqamCoreContract", "SattariMaqamBooleanStateContract"],
+    "sattari-arp": ["SattariArpTimingContract", "SattariArpUIContract", "SattariArpBooleanStateContract"],
+    "align": ["SattariAlignCoreContract", "SattariAlignBooleanStateContract"],
+    "tuner": ["TunerContract", "SattariTunerBooleanStateContract"],
+    "meter": ["MeterContract", "SattariMeterBooleanStateContract"],
+    "scaler": ["ScalerContract", "SattariScalerBooleanStateContract"],
+    "scope": ["ScopeContract", "SattariScopeBooleanStateContract"],
+    "brain": ["BrainContract", "SattariBrainBooleanStateContract"],
+    "modular": ["ModularFX", "ModularFXHosting", "SattariModularFXBooleanStateContract"],
+    "modular-instrument": ["ModularInstrument", "ModularInstrumentHosting", "SattariModularInstrumentBooleanStateContract"]
+  },
+  "ownerGates": [
+    "licensing decision and notices review",
+    "supported DAW acceptance and session migration",
+    "real-material listening approval",
+    "clean-machine installation, update and uninstall",
+    "macOS notarization and Windows signing",
+    "storefront downloads, support and refund policy"
+  ]
+}

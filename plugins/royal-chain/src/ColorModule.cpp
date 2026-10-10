@@ -5,8 +5,7 @@ void ColorModule::prepare (double sampleRate)
 {
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
     // Pre-size ADAA state so process() never allocates on the audio thread.
-    // Royal Chain is stereo; the in-process guard stays as a safety net.
-    x1.assign (2, 0.0f);
+    x1.assign (8, 0.0f);
     reset();
 }
 
@@ -31,9 +30,7 @@ void ColorModule::process (juce::AudioBuffer<float>& buffer, float glow, float r
     const float mix = juce::jlimit (0.0f, 0.65f, glow * 0.42f + royal * 0.12f);
     const float compensate = 1.0f / (1.0f + 0.25f * (drive - 1.0f));
 
-    const int numChannels = buffer.getNumChannels();
-    if ((int) x1.size() < numChannels)
-        x1.assign ((size_t) numChannels, 0.0f);
+    const int numChannels = juce::jmin (buffer.getNumChannels(), (int) x1.size());
 
     // ADAA on g(x) = tanh(drive * x). Its antiderivative is
     //   G(x) = (1/drive) * ln(cosh(drive * x)),

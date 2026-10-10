@@ -32,6 +32,6 @@
       selectTab(tabs[next], true);
     }
   });
-  selectTab(tabs[0]);
+  selectTab(location.hash === '#instrument' ? tabs[1] : tabs[0]);
   tablist.hidden = false;
 })();

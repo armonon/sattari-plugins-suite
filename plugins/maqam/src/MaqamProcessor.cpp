@@ -1,7 +1,18 @@
 #include "MaqamProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "MaqamEditor.h"
 
 using APVTS = juce::AudioProcessorValueTreeState;
+
+namespace
+{
+constexpr int kRealtimeScratchReserve = 8192;
+
+juce::String utf8 (const char* text)
+{
+    return juce::String::fromUTF8 (text);
+}
+}
 
 juce::StringArray SattariMaqamAudioProcessor::maqamChoices()
 {
@@ -19,7 +30,7 @@ APVTS::ParameterLayout SattariMaqamAudioProcessor::createParameterLayout()
 {
     using FloatP  = juce::AudioParameterFloat;
     using ChoiceP = juce::AudioParameterChoice;
-    using BoolP   = juce::AudioParameterBool;
+    using BoolP   = sattari::parameters::Bool;
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
     auto unit = [] { return juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f); };
 
@@ -56,28 +67,28 @@ void SattariMaqamAudioProcessor::registerFactoryPresets()
     using PV = sattari::presets::SattariPresetManager::PresetValues;
 
     // maqam choice indices: 0=Rast 1=Bayati 2=Hijaz 3=Saba 4=Kurd 5=Nahawand 6=Ajam 7=Hijazkar
-    presetBank.addFactoryPreset ("Rast — Natural",
+    presetBank.addFactoryPreset (utf8 ("Rast \xe2\x80\x94 Natural"),
         PV{ {"maqam", 0}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Bayati — Expressive",
+    presetBank.addFactoryPreset (utf8 ("Bayati \xe2\x80\x94 Expressive"),
         PV{ {"maqam", 1}, {"strength", 0.75f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Hijaz — Hard Tune",
+    presetBank.addFactoryPreset (utf8 ("Hijaz \xe2\x80\x94 Hard Tune"),
         PV{ {"maqam", 2}, {"strength", 1.0f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Saba — Gentle",
+    presetBank.addFactoryPreset (utf8 ("Saba \xe2\x80\x94 Gentle"),
         PV{ {"maqam", 3}, {"strength", 0.65f}, {"mix", 0.9f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Kurd — Modern",
+    presetBank.addFactoryPreset (utf8 ("Kurd \xe2\x80\x94 Modern"),
         PV{ {"maqam", 4}, {"strength", 0.9f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Nahawand — Minor Feel",
+    presetBank.addFactoryPreset (utf8 ("Nahawand \xe2\x80\x94 Minor Feel"),
         PV{ {"maqam", 5}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Ajam — Major Feel",
+    presetBank.addFactoryPreset (utf8 ("Ajam \xe2\x80\x94 Major Feel"),
         PV{ {"maqam", 6}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
-    presetBank.addFactoryPreset ("Hijazkar — Ornament",
+    presetBank.addFactoryPreset (utf8 ("Hijazkar \xe2\x80\x94 Ornament"),
         PV{ {"maqam", 7}, {"strength", 0.7f}, {"mix", 0.95f}, {"formant", 1} });
 }
 
 void SattariMaqamAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    preparedBlockSize = juce::jmax (32, samplesPerBlock);
+    preparedBlockSize = juce::jmax (kRealtimeScratchReserve, juce::jmax (32, samplesPerBlock));
 
     pitchDetector.prepare (currentSampleRate, 70.0f, 1200.0f);
     analysisHop = juce::jmax (256, (int) (currentSampleRate * 0.011));
@@ -161,16 +172,16 @@ void SattariMaqamAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     inputMeter.store (buffer.getMagnitude (0, numSamples));
 
     // Mono sum for detection.
-    if ((int) monoScratch.size() < numSamples) monoScratch.resize ((size_t) numSamples);
-    std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
+    const int analysisSamples = juce::jmin (numSamples, (int) monoScratch.size());
+    std::fill (monoScratch.begin(), monoScratch.begin() + analysisSamples, 0.0f);
     for (int ch = 0; ch < numChannels; ++ch)
     {
         const float* in = buffer.getReadPointer (ch);
-        for (int i = 0; i < numSamples; ++i) monoScratch[(size_t) i] += in[i] / (float) numChannels;
+        for (int i = 0; i < analysisSamples; ++i) monoScratch[(size_t) i] += in[i] / (float) numChannels;
     }
 
-    pitchDetector.pushBlock (monoScratch.data(), numSamples);
-    analysisCounter += numSamples;
+    pitchDetector.pushBlock (monoScratch.data(), analysisSamples);
+    analysisCounter += analysisSamples;
     if (analysisCounter >= analysisHop)
     {
         analysisCounter = 0;
@@ -206,8 +217,14 @@ void SattariMaqamAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         smoothedRatio += (1.0 - smoothedRatio) * 0.1;
     }
 
+    if (numSamples > preparedBlockSize || wetBuffer.getNumChannels() < numChannels)
+    {
+        buffer.applyGain (juce::Decibels::decibelsToGain (param ("output")));
+        outputMeter.store (buffer.getMagnitude (0, numSamples));
+        return;
+    }
+
     // Render the corrected (wet) signal per channel.
-    wetBuffer.setSize (numChannels, numSamples, false, false, true);
 #if SATTARI_MAQAM_HAS_RUBBERBAND
     const bool preserve = param ("formant") > 0.5f;
     for (int ch = 0; ch < numChannels; ++ch)

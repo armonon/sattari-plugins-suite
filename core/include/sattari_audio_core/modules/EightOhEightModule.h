@@ -47,7 +47,7 @@ public:
         // out of the box the body follows the raw tracked pitch; the editor greys the
         // menu the same way the rest of the suite does. When on with no fresh key on
         // the bus, the body still follows raw pitch (nothing to snap to).
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "snap", 1), "Tune to Key", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "snap", 1), "Tune to Key", false));
 
         // Glide / portamento toward each new tracked pitch (0 ~ instant, 1 ~ 300 ms).
         out.push_back (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID (prefix + "glide", 1), "Glide",

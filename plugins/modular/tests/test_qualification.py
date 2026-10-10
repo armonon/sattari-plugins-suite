@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 SPEC = importlib.util.spec_from_file_location("qualify", Path(__file__).parents[1] / "scripts/qualify.py")
 qualify = importlib.util.module_from_spec(SPEC)
@@ -9,6 +10,14 @@ SPEC.loader.exec_module(qualify)
 
 
 class QualificationTests(unittest.TestCase):
+    def complete_report(self, failure_tag=None):
+        suite = ET.Element("testsuite")
+        for name in qualify.CONTRACTS:
+            case = ET.SubElement(suite, "testcase", name=name)
+            if failure_tag and name == "ModularFXHosting":
+                ET.SubElement(case, failure_tag)
+        return ET.tostring(suite, encoding="unicode")
+
     def report(self, xml):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "contracts.xml"
@@ -16,7 +25,11 @@ class QualificationTests(unittest.TestCase):
             qualify.require_contracts(path)
 
     def test_exact_passing_inventory(self):
-        self.report('<testsuite><testcase name="ModularFX"/><testcase name="ModularInstrument"/></testsuite>')
+        self.report(self.complete_report())
+
+    def test_missing_hosting_contracts_fail(self):
+        with self.assertRaises(ValueError):
+            self.report('<testsuite><testcase name="ModularFX"/><testcase name="ModularInstrument"/></testsuite>')
 
     def test_missing_contract_fails(self):
         with self.assertRaises(ValueError):
@@ -29,7 +42,7 @@ class QualificationTests(unittest.TestCase):
     def test_skips_and_failures_fail(self):
         for tag in ("failure", "error", "skipped"):
             with self.subTest(tag=tag), self.assertRaises(ValueError):
-                self.report(f'<testsuite><testcase name="ModularFX"><{tag}/></testcase><testcase name="ModularInstrument"/></testsuite>')
+                self.report(self.complete_report(tag))
 
     def test_empty_inventory_fails(self):
         with self.assertRaises(ValueError):

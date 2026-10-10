@@ -67,7 +67,7 @@ inline constexpr NodeSpec kNodes[kNumNodes] = {
     { "CONTROL", "control", -18.0f, 0xff8a8ff5, 0xff62f5c8, "Compression and level riding." },
     { "SMOOTH",  "smooth",   54.0f, 0xff74b0ec, 0xff62f5c8, "De-essing and harshness control." },
     { "GLOW",    "glow",    126.0f, 0xff66d4dc, 0xff9b7bff, "Harmonic colour and saturation." },
-    { "WIDTH",   "width",   198.0f, 0xff62f5c8, 0xff9b7bff, "Stereo width and doubling." },
+    { "WIDTH",   "width",   198.0f, 0xff62f5c8, 0xff9b7bff, "Stereo width; mono remains mono." },
 };
 
 // --- The 12 user macros (deck order, then ROYAL) --------------------------------

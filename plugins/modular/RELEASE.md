@@ -1,6 +1,9 @@
 # Modular Release Gate
 
-Version 0.1.1 is a qualification candidate, not an approved public release.
+Version 0.2.0 is the current consolidated development build, not an approved
+public release. The earlier 0.1.1 candidate record is historical and does not
+qualify the new modules, four layers, hosting or preset importer. Current scope
+and evidence are in `docs/suite-consolidation-2026-10-02.md`.
 Only an exact package with current passing evidence can be considered for launch.
 The manifest identifies the source, runtime-tested architectures, signatures,
 individual file hashes, and checks actually run. No platform is inferred from
@@ -64,15 +67,18 @@ tester, date, result, and reproduction details for any failure.
 
 1. Scan, instantiate FX and Instrument, and open/close/resize their editors.
 2. Build chains with duplicate modules, bypass, return routing, and automation.
-3. Load distinct samples into both layers; reorder, duplicate, undo, and redo.
+3. Load distinct samples into all four layers; reorder, duplicate, undo, and redo.
 4. Exercise keyboard, sustain, pitch bend, dense MIDI, and all-notes-off.
 5. Change scenes and A/B; save the DAW session, close, reopen, and compare sound.
-6. Reopen a 0.1.0 session and preset; verify IDs, controls, sources, and automation.
+6. Reopen 0.1.0/0.1.1 sessions and presets; verify IDs, sources and automation.
 7. Loop and seek transport, change tempo and devices, freeze, and offline-bounce.
 8. Exercise mono/stereo, 44.1/48/96 kHz, small and large buffers, and many instances.
 9. Run a sustained session and record dropouts, peak callback time, and memory.
 10. Install, upgrade, and roll back the exact package on a clean supported machine.
 
-No output limiter is present. Evaluate loud/high-feedback chains at low monitor
-levels. External plugin binaries, arbitrary patch cables, external sidechains,
-automatic mixing, and full deep module editors are outside this version's scope.
+The optional Safety clip is a hard sample clip, not a transparent or true-peak
+limiter. Evaluate loud/high-feedback chains at low monitor levels. Trusted VST3
+hosting is supported in-process, without crash isolation. Arbitrary patch cables,
+external sidechains, automatic mixing and full deep instrument editors remain
+outside this version's scope. Qualify imported Vocal/Create chains against the
+original sound; file import does not convert DAW automation or active legacy LFOs.

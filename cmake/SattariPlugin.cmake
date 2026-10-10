@@ -128,6 +128,10 @@ function(sattari_add_plugin)
     endforeach()
 
     set(permission_args)
+    if(APPLE AND "Standalone" IN_LIST SAP_FORMATS AND NOT SAP_MICROPHONE_PERMISSION_TEXT)
+        set(SAP_MICROPHONE_PERMISSION_TEXT
+            "Use your selected microphone or audio interface as the audio input for ${SAP_PRODUCT_NAME}.")
+    endif()
     if(SAP_MICROPHONE_PERMISSION_TEXT)
         list(APPEND permission_args MICROPHONE_PERMISSION_ENABLED TRUE
             MICROPHONE_PERMISSION_TEXT "${SAP_MICROPHONE_PERMISSION_TEXT}")
@@ -150,6 +154,8 @@ function(sattari_add_plugin)
         ${permission_args})
 
     juce_generate_juce_header(${SAP_TARGET})
+    set_property(GLOBAL APPEND PROPERTY SATTARI_NATIVE_PLUGIN_TARGETS ${SAP_TARGET})
+    set_property(TARGET ${SAP_TARGET} PROPERTY SATTARI_PRODUCT_SLUG "${SAP_SLUG}")
 
     # JUCE ad-hoc signs AU/VST3 bundles during its copy-after-build step, but a
     # raw macOS Standalone target can remain unsigned. That made a clean build
@@ -172,6 +178,10 @@ function(sattari_add_plugin)
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
             JUCE_VST3_CAN_REPLACE_VST2=0)
+
+    if(MSVC)
+        target_compile_definitions(${SAP_TARGET} PUBLIC _USE_MATH_DEFINES)
+    endif()
 
     target_link_libraries(${SAP_TARGET}
         PRIVATE

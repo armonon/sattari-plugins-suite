@@ -164,15 +164,15 @@ public:
                     target.addItem (location + " / " + P::typeName (p.nodeType (n)) + " / " + info.name, n * P::controls + c + 2);
                 }
             const auto suffix = juce::String (i + 1);
-            target.setSelectedId ((int) p.value (P::macroId (m, "target" + suffix)) + 1, juce::dontSendNotification);
+            target.setSelectedId (p.mappingTarget (m, i) + 1, juce::dontSendNotification);
             target.onChange = [this, i, suffix]
             {
                 processor.captureUndo(); const int chosen = targets[(size_t) i].getSelectedId() - 1;
                 // One owner per parameter keeps the visible mapping unambiguous.
                 if (chosen > 0) for (int mm = 0; mm < P::macros; ++mm) for (int map = 0; map < P::mappings; ++map)
-                    if ((mm != macro || map != i) && (int) processor.value (P::macroId (mm, "target" + juce::String (map + 1))) == chosen)
-                        processor.set (P::macroId (mm, "target" + juce::String (map + 1)), 0);
-                processor.set (P::macroId (macro, "target" + suffix), (float) chosen); ++processor.uiRevision;
+                    if ((mm != macro || map != i) && processor.mappingTarget (mm, map) == chosen)
+                        processor.setMappingTarget (mm, map, 0);
+                processor.setMappingTarget (macro, i, chosen); ++processor.uiRevision;
             };
             addAndMakeVisible (target);
             for (int j = 0; j < 2; ++j)
@@ -204,10 +204,46 @@ private:
     std::array<std::unique_ptr<Knob>, 4> limits;
 };
 
+class LayerPanel final : public juce::Component
+{
+public:
+    LayerPanel (P& p, int node)
+    {
+        const char* keys[] { "level", "pan", "keyLow", "keyHigh", "transpose", "velocity" };
+        const char* names[] { "Level / dB", "Pan", "Lowest MIDI note", "Highest MIDI note", "Transpose / st", "Velocity curve" };
+        for (int i = 0; i < 6; ++i)
+        { knobs[(size_t) i] = std::make_unique<Knob> (p, P::nodeId (node, keys[i]), names[i]); addAndMakeVisible (*knobs[(size_t) i]); }
+        setSize (420, 230);
+    }
+    void resized() override
+    { for (int i = 0; i < 6; ++i) knobs[(size_t) i]->setBounds (10 + (i % 3) * 135, 25 + (i / 3) * 98, 130, 92); }
+    void paint (juce::Graphics& g) override { g.fillAll (base); label (g, "LAYER", { 14, 3, 390, 20 }, 12, accent); }
+private:
+    std::array<std::unique_ptr<Knob>, 6> knobs;
+};
+
+class HostedEditorWindow final : public juce::DocumentWindow
+{
+public:
+    explicit HostedEditorWindow (std::shared_ptr<juce::AudioPluginInstance> instance)
+        : DocumentWindow (instance->getName(), base, closeButton), plugin (std::move (instance))
+    {
+        setUsingNativeTitleBar (true);
+        auto* editor = plugin->createEditorIfNeeded();
+        if (! editor) editor = new juce::GenericAudioProcessorEditor (*plugin);
+        setContentOwned (editor, true); setResizable (editor->isResizable(), false);
+        centreWithSize (getWidth(), getHeight()); setVisible (true);
+    }
+    ~HostedEditorWindow() override { clearContentComponent(); }
+    void closeButtonPressed() override { setVisible (false); }
+    std::shared_ptr<juce::AudioPluginInstance> plugin;
+};
+
 class RackRow final : public juce::Component
 {
 public:
-    RackRow (P& processor, int index, std::function<void (int)> loadSample) : p (processor), node (index), import (std::move (loadSample))
+    RackRow (P& processor, int index, std::function<void (int)> loadSample, std::function<void()> layoutChanged)
+        : p (processor), node (index), import (std::move (loadSample)), relayout (std::move (layoutChanged))
     {
         for (int candidate = 0; candidate < P::typeCount; ++candidate) if (P::allowedType (node, candidate)) menu.addItem (P::typeName (candidate), candidate + 1);
         menu.onChange = [this] { p.selectModule (node, menu.getSelectedId() - 1); };
@@ -217,17 +253,40 @@ public:
         copy.onClick = [this] { if (! p.duplicateModule (node)) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Lane full", "There is no empty slot in this lane."); };
         remove.onClick = [this] { p.selectModule (node, P::empty); };
         sample.onClick = [this] { import (node - P::effectSlots); };
-        for (auto* c : std::initializer_list<juce::Component*> { &bypass, &up, &down, &copy, &remove, &sample }) addAndMakeVisible (*c);
+        detail.onClick = [this] { expanded = ! expanded; type = -1; refresh(); relayout(); };
+        pluginFile.onClick = [this] { choosePlugin(); };
+        pluginEditor.onClick = [this]
+        {
+            if (auto instance = p.hostedInstance (node))
+            {
+                if (! hostedWindow && instance->getActiveEditor())
+                { instance->getActiveEditor()->getTopLevelComponent()->toFront (true); return; }
+                if (! hostedWindow) hostedWindow = std::make_unique<HostedEditorWindow> (std::move (instance));
+                hostedWindow->setVisible (true); hostedWindow->toFront (true);
+            }
+        };
+        pluginLabel.setColour (juce::Label::textColourId, ink);
+        pluginLabel.setFont (sattari::brand::fontOptions (12));
+        routing.onClick = [this]
+        {
+            layerCallout.reset(); layerPanel = std::make_unique<LayerPanel> (p, node);
+            layerPanel->setLookAndFeel (&getLookAndFeel());
+            auto* owner = getTopLevelComponent();
+            layerCallout = std::make_unique<juce::CallOutBox> (*layerPanel, owner->getLocalArea (&routing, routing.getLocalBounds()), owner);
+            layerCallout->enterModalState (true, nullptr, false);
+        };
+        for (auto* c : std::initializer_list<juce::Component*> { &bypass, &up, &down, &copy, &remove, &sample, &detail, &routing, &pluginFile, &pluginEditor, &pluginLabel }) addAndMakeVisible (*c);
         refresh();
     }
     bool refresh()
     {
+        if (layerCallout && ! layerCallout->isCurrentlyModal()) { layerCallout.reset(); layerPanel.reset(); }
         const int next = p.nodeType (node); const bool changed = next != type;
         if (changed)
         {
             type = next; knobs.clear(); discrete.clear(); switches.clear(); discreteLabels.clear();
             menu.setSelectedId (type + 1, juce::dontSendNotification);
-            for (int c = 0; c < P::controls; ++c)
+            for (int c = 0; c < (expanded ? P::allControls : P::controls); ++c)
             {
                 auto meta = p.info (type, c); if (! meta.valid) continue;
                 if (meta.toggle)
@@ -255,13 +314,26 @@ public:
                     knobs.emplace_back (c, std::move (knob));
                 }
             }
-            sample.setVisible (type == P::granulator);
+            sample.setVisible (type == P::granulator || type == P::chop);
+            bool hasDetails = false; for (int c = P::controls; c < P::allControls; ++c) hasDetails = hasDetails || p.info (type, c).valid;
+            detail.setVisible (hasDetails); detail.setToggleState (expanded, juce::dontSendNotification);
+            routing.setVisible (P::isInstrument (type));
+            for (auto* c : std::initializer_list<juce::Component*> { &pluginFile, &pluginEditor, &pluginLabel }) c->setVisible (P::isHosted (type));
             for (auto* c : std::initializer_list<juce::Component*> { &bypass, &up, &down, &copy, &remove }) c->setVisible (type != P::empty);
             resized(); repaint();
         }
         bypass.setToggleState (p.value (P::nodeId (node, "bypass")) < 0.5f, juce::dontSendNotification);
+        if (hostedWindow && (! P::isHosted (type) || hostedWindow->plugin != p.hostedInstance (node))) hostedWindow.reset();
+        if (P::isHosted (type))
+        {
+            const auto status = p.hostedStatus (node);
+            pluginLabel.setText (status, juce::dontSendNotification); pluginLabel.setTooltip (status);
+            pluginEditor.setEnabled (p.hostedInstance (node) != nullptr);
+        }
         sample.setTooltip ("Source: " + p.sampleName (juce::jmax (0, node - P::effectSlots)));
-        const int first = node < 6 ? 0 : node < 8 ? 6 : 8, last = node < 6 ? 5 : node < 8 ? 7 : 9;
+        const bool serial = p.value ("serial") >= .5f;
+        const int first = node < P::effectSlots && serial ? 0 : node < 6 ? 0 : node < 8 ? 6 : 8;
+        const int last = node < P::effectSlots && serial ? P::effectSlots - 1 : node < 6 ? 5 : node < 8 ? 7 : P::nodes - 1;
         up.setEnabled (node > first); down.setEnabled (node < last);
         for (auto& knob : knobs)
         {
@@ -285,16 +357,21 @@ public:
         }
         return changed;
     }
-    int rowHeight() const { return type == P::empty ? 46 : 90; }
+    int rowHeight() const { return type == P::empty ? 46 : type >= P::gate ? 90 * juce::jmax (1, (controlCount() + 3) / 4) : 90 * (1 + juce::jmax (0, (controlCount() - 8 + 3) / 4)); }
     void resized() override
     {
         menu.setBounds (22, 10, 132, 25);
+        if (P::isHosted (type)) menu.setBounds (22, 10, 208, 25);
+        pluginLabel.setBounds (245, 10, juce::jmax (40, getWidth() - 340), 66);
+        pluginFile.setBounds (getWidth() - 80, 30, 28, 28);
+        pluginEditor.setBounds (getWidth() - 46, 30, 28, 28);
         int x = 22; for (auto* b : std::initializer_list<juce::Component*> { &bypass, &up, &down, &copy, &remove }) { b->setBounds (x, 42, 25, 25); x += 27; }
         sample.setBounds (128, 68, 26, 20);
-        const int count = controlCount(), width = juce::jmax (1, (getWidth() - 180) / juce::jmax (count, 1));
-        for (auto& knob : knobs) knob.second->setBounds (170 + knob.first * width, 8, width, 78);
-        for (auto& item : discrete) item.second->setBounds (174 + item.first * width, 40, width - 8, 26);
-        for (auto& item : switches) item.second->setBounds (174 + item.first * width, 32, width - 8, 42);
+        detail.setBounds (P::isInstrument (type) ? 68 : 128, 68, 26, 20);
+        routing.setBounds (98, 68, 26, 20);
+        for (auto& knob : knobs) knob.second->setBounds (cell (knob.first).withTrimmedTop (8).withHeight (78));
+        for (auto& item : discrete) item.second->setBounds (cell (item.first).reduced (4, 0).withTrimmedTop (40).withHeight (26));
+        for (auto& item : switches) item.second->setBounds (cell (item.first).reduced (4, 0).withTrimmedTop (32).withHeight (42));
     }
     void paint (juce::Graphics& g) override
     {
@@ -309,11 +386,10 @@ public:
         screw (g, 10, 12); screw (g, (float) getWidth() - 10, 12);
         if (type != P::empty) { screw (g, 10, (float) getHeight() - 12); screw (g, (float) getWidth() - 10, (float) getHeight() - 12); }
         const auto text = silver ? juce::Colour (0xff303636) : muted;
-        const auto location = node < 6 ? "SERIAL " + juce::String (node + 1) : node < 8 ? "RETURN " + juce::String (node - 5) : "SOURCE " + juce::String (node - 7);
-        if (type != P::empty) label (g, location, { 24, 72, type == P::granulator ? 98 : 130, 14 }, 9, text);
+        const auto location = node < 6 || (node < P::effectSlots && p.value ("serial") >= .5f) ? "SERIAL " + juce::String (node + 1) : node < 8 ? "RETURN " + juce::String (node - 5) : "SOURCE " + juce::String (node - 7);
+        if (type != P::empty) label (g, P::isInstrument (type) ? juce::String (node - 7) : location, { 24, 72, P::isInstrument (type) ? 36 : 98, 14 }, 9, text);
         if (type == P::empty) label (g, location + " / EMPTY", { 180, 11, getWidth() - 220, 24 }, 10, text);
-        const int width = juce::jmax (1, (getWidth() - 180) / juce::jmax (controlCount(), 1));
-        for (auto& item : discreteLabels) label (g, item.second, { 170 + item.first * width, 8, width, 18 }, 10, text, juce::Justification::centred);
+        for (auto& item : discreteLabels) label (g, item.second, cell (item.first).withTrimmedTop (8).withHeight (18), 10, text, juce::Justification::centred);
         if (type != P::empty)
         {
             g.setColour (p.value (P::nodeId (node, "bypass")) < 0.5f ? accent : juce::Colour (0xff565b56));
@@ -321,12 +397,67 @@ public:
         }
     }
 private:
-    int controlCount() const { int count = 0; for (int c = 0; c < P::controls; ++c) if (p.info (type, c).valid) count = c + 1; return count; }
-    P& p; int node, type = -1; std::function<void (int)> import;
+    void choosePlugin()
+    {
+       #if JUCE_WINDOWS
+        const juce::File folder (juce::SystemStats::getEnvironmentVariable ("CommonProgramFiles", "C:\\Program Files\\Common Files") + "\\VST3");
+       #else
+        const juce::File folder ("/Library/Audio/Plug-Ins/VST3");
+       #endif
+        pluginChooser = std::make_unique<juce::FileChooser> ("Load VST3 plugin", folder, "*.vst3");
+        pluginChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::canSelectDirectories,
+            [safe = juce::Component::SafePointer<RackRow> (this)] (const juce::FileChooser& chooser)
+            {
+                if (! safe || chooser.getResult() == juce::File()) return;
+                juce::String failure;
+                auto descriptions = safe->p.scanHostedPlugin (chooser.getResult(), safe->node >= P::effectSlots, failure);
+                if (descriptions.isEmpty()) { safe->showFailure (failure); return; }
+                if (descriptions.size() == 1) { safe->loadPlugin (descriptions[0]); return; }
+                juce::PopupMenu choices;
+                for (int i = 0; i < descriptions.size(); ++i) choices.addItem (i + 1, descriptions[i].name);
+                choices.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&safe->pluginFile),
+                    [safe, descriptions] (int selected)
+                    { if (safe && selected > 0) safe->loadPlugin (descriptions[selected - 1]); });
+            });
+    }
+    void loadPlugin (const juce::PluginDescription& description)
+    {
+        hostedWindow.reset();
+        auto result = p.loadHostedPlugin (node, description);
+        if (result.failed()) showFailure (result.getErrorMessage());
+    }
+    void showFailure (const juce::String& failure)
+    { juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Plugin unavailable", failure); }
+    juce::Rectangle<int> cell (int index) const
+    {
+        int ordinal = 0; for (int c = 0; c < index; ++c) if (p.info (type, c).valid) ++ordinal;
+        if (type >= P::gate)
+        {
+            const int columns = juce::jmax (1, juce::jmin (4, controlCount()));
+            const int width = juce::jmax (1, (getWidth() - 180) / columns);
+            return { 170 + (ordinal % columns) * width, (ordinal / columns) * 90, width, 90 };
+        }
+        const int columns = ordinal < 8 ? juce::jmax (1, juce::jmin (8, controlCount())) : 4;
+        const int width = juce::jmax (1, (getWidth() - 180) / columns);
+        const int row = ordinal < 8 ? 0 : 1 + (ordinal - 8) / 4, column = ordinal < 8 ? ordinal : (ordinal - 8) % 4;
+        return { 170 + column * width, row * 90, width, 90 };
+    }
+    int controlCount() const { int count = 0; for (int c = 0; c < (expanded ? P::allControls : P::controls); ++c) if (p.info (type, c).valid) ++count; return count; }
+    bool expanded = false;
+    P& p; int node, type = -1; std::function<void (int)> import; std::function<void()> relayout;
     juce::ComboBox menu;
     sattari::releaseui::IconButton bypass { sattari::releaseui::Icon::power, "Module power" },
         up { sattari::releaseui::Icon::up, "Move up" }, down { sattari::releaseui::Icon::down, "Move down" };
     Tool copy { Icon::copy, "Duplicate module" }, remove { Icon::remove, "Remove module" }, sample { Icon::folder, "Load source sample" };
+    Tool detail { Icon::map, "Detailed effect controls" };
+    Tool routing { Icon::map, "Layer controls" };
+    Tool pluginFile { Icon::folder, "Load or relink VST3 plugin" }, pluginEditor { Icon::map, "Open hosted plugin editor" };
+    juce::Label pluginLabel;
+    std::unique_ptr<juce::FileChooser> pluginChooser;
+    std::unique_ptr<HostedEditorWindow> hostedWindow;
+    std::unique_ptr<LayerPanel> layerPanel;
+    std::unique_ptr<juce::CallOutBox> layerCallout;
     std::vector<std::pair<int, std::unique_ptr<Knob>>> knobs;
     std::vector<std::pair<int, std::unique_ptr<juce::ComboBox>>> discrete;
     std::vector<std::pair<int, std::unique_ptr<juce::ToggleButton>>> switches;
@@ -380,8 +511,18 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         addAndMakeVisible (keyboard);
         viewport.setViewedComponent (&rack, false); viewport.setScrollBarsShown (true, false); viewport.setScrollBarThickness (9);
         addAndMakeVisible (viewport);
+        libraryViewport.setViewedComponent (&libraryPanel, false); libraryViewport.setScrollBarsShown (true, false);
+        libraryViewport.setScrollBarThickness (8); addAndMakeVisible (libraryViewport);
+        collection.addItemList ({ "All modules", "Vocal", "Create", "Instruments", "Mix", "External" }, 1);
+        collection.setSelectedId (1, juce::dontSendNotification); collection.setTitle ("Module collection");
+        collection.onChange = [this]
+        {
+            if (collection.getSelectedId() == 4 && ! playing()) { p.set ("workspace", 2); ++p.uiRevision; }
+            resized();
+        };
+        addAndMakeVisible (collection);
         for (int n = 0; n < P::nodes; ++n)
-        { rows[(size_t) n] = std::make_unique<RackRow> (p, n, [this] (int layer) { chooseFile (2, layer); }); rack.addAndMakeVisible (*rows[(size_t) n]); }
+        { rows[(size_t) n] = std::make_unique<RackRow> (p, n, [this] (int layer) { chooseFile (2, layer); }, [this] { resized(); }); rack.addAndMakeVisible (*rows[(size_t) n]); }
         for (int i = 0; i < 3; ++i)
         {
             modes[(size_t) i].setButtonText (juce::StringArray { "MIX", "DESIGN", "PLAY" }[i]);
@@ -394,13 +535,19 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         presets.onChange = [this] { if (presets.getSelectedId() > 0) p.loadFactory (presets.getSelectedId() - 1); };
         addAndMakeVisible (presets);
         save.onClick = [this] { chooseFile (1); }; load.onClick = [this] { chooseFile (0); };
+        import.onClick = [this] { chooseFile (3); };
         undo.onClick = [this] { p.undo(); }; redo.onClick = [this] { p.redo(); };
         a.setButtonText ("A"); b.setButtonText ("B"); a.onClick = [this] { p.selectAB (0); }; b.onClick = [this] { p.selectAB (1); };
         copy.onClick = [this] { p.copyAB(); };
         power.onClick = [this] { p.captureUndo(); p.set ("bypass", p.value ("bypass") < 0.5f ? 1 : 0); };
         panic.onClick = [this] { keys.allNotesOff (0); p.allNotesOff(); };
         clip.setButtonText ("CLIP"); clip.setTooltip ("Reset clip indicator"); clip.onClick = [this] { p.clipped.store (false); };
-        for (auto* c : std::initializer_list<juce::Component*> { &save, &load, &undo, &redo, &a, &b, &copy, &power, &panic, &output, &ambience, &clip }) addAndMakeVisible (*c);
+        protect.setTitle ("Output safety clip"); protect.setTooltip ("Hard ceiling at -0.18 dBFS; not a true-peak limiter. Off preserves the original sound.");
+        addAndMakeVisible (protect); protectAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.parameters, "protect", protect);
+        serial.setTooltip ("Route all eight effects in series instead of using the last two as a parallel return.");
+        serial.onClick = [this] { ++p.uiRevision; };
+        addAndMakeVisible (serial); serialAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.parameters, "serial", serial);
+        for (auto* c : std::initializer_list<juce::Component*> { &save, &load, &import, &undo, &redo, &a, &b, &copy, &power, &panic, &output, &ambience, &clip }) addAndMakeVisible (*c);
         meterL.channel = "L"; meterR.channel = "R"; addAndMakeVisible (meterL); addAndMakeVisible (meterR);
         for (int type = 1; type < P::typeCount; ++type)
         {
@@ -408,11 +555,11 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
             button->setTooltip ("Add " + P::typeName (type));
             button->onClick = [this, type]
             {
-                const int first = type <= P::image ? 0 : P::effectSlots, end = type <= P::image ? P::mainSlots : P::nodes;
+                const int first = P::isInstrument (type) ? P::effectSlots : 0, end = P::isInstrument (type) ? P::nodes : p.value ("serial") >= .5f ? P::effectSlots : P::mainSlots;
                 for (int n = first; n < end; ++n) if (p.nodeType (n) == P::empty) { p.selectModule (n, type); return; }
                 juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Lane full", "Choose a module from a rack slot to replace it.");
             };
-            addAndMakeVisible (*button); library.push_back (std::move (button));
+            libraryPanel.addAndMakeVisible (*button); library.push_back (std::move (button));
         }
         for (int m = 0; m < P::macros; ++m)
         {
@@ -439,14 +586,15 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
     bool playing() const { return SATTARI_MODULAR_SYNTH || p.currentWorkspace() == 2; }
     void chooseFile (int operation, int layer = 0)
     {
-        const auto title = operation == 1 ? "Save Modular preset" : operation == 2 ? "Load source sample" : "Load Modular preset";
-        chooser = std::make_unique<juce::FileChooser> (title, juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), operation == 2 ? "*.wav;*.aif;*.aiff;*.flac" : "*.sattarimodular");
+        const auto title = operation == 1 ? "Save Modular preset" : operation == 2 ? "Load source sample" : operation == 3 ? "Import Vocal or Create preset" : "Load Modular preset";
+        chooser = std::make_unique<juce::FileChooser> (title, juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), operation == 2 ? "*.wav;*.aif;*.aiff;*.flac" : operation == 3 ? "*.sattaripreset" : "*.sattarimodular");
         auto flags = juce::FileBrowserComponent::canSelectFiles | (operation == 1 ? juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting : juce::FileBrowserComponent::openMode);
         chooser->launchAsync (flags, [safe = juce::Component::SafePointer<View> (this), operation, layer] (const juce::FileChooser& fc)
         {
             if (safe == nullptr || fc.getResult() == juce::File()) return;
             auto file = fc.getResult(); if (operation == 1) file = file.withFileExtension ("sattarimodular");
-            const auto result = operation == 1 ? safe->p.savePreset (file) : operation == 2 ? safe->p.loadSample (layer, file) : safe->p.loadPreset (file);
+            const auto result = operation == 1 ? safe->p.savePreset (file) : operation == 2 ? safe->p.loadSample (layer, file) : operation == 3 ? safe->p.importLegacyPreset (file) : safe->p.loadPreset (file);
+            if (operation == 3 && result.wasOk()) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Preset imported", "Chain settings were copied into Modular. DAW automation is not converted; keep the original plugin in existing sessions.");
             if (result.failed()) juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Sattari Modular", result.getErrorMessage());
             safe->refresh();
         });
@@ -462,6 +610,7 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         presets.setText (p.presetName(), juce::dontSendNotification);
         undo.setEnabled (p.canUndo()); redo.setEnabled (p.canRedo()); power.setToggleState (p.value ("bypass") < 0.5f, juce::dontSendNotification);
         clip.setToggleState (p.clipped.load(), juce::dontSendNotification);
+        ambience.setEnabled (p.value ("serial") < .5f);
     }
     void timerCallback() override
     {
@@ -475,17 +624,27 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         for (int i = 0; i < 3; ++i) modes[(size_t) i].setBounds (w - 296 + i * 86, 24, 82, 30);
         presets.setBounds (154, 82, 230, 30); load.setBounds (392, 82, 30, 30); save.setBounds (426, 82, 30, 30);
         undo.setBounds (472, 82, 30, 30); redo.setBounds (506, 82, 30, 30);
+        import.setBounds (666, 82, 30, 30);
         a.setBounds (554, 82, 30, 30); b.setBounds (588, 82, 30, 30); copy.setBounds (622, 82, 30, 30);
         for (int i = 0; i < 3; ++i) scenes[(size_t) i].setBounds (right - 122 + i * 35, 82, 31, 30);
         power.setBounds (w - 48, 82, 30, 30);
         panic.setBounds (w - 86, 82, 30, 30);
-        for (int i = 0; i < (int) library.size(); ++i)
-        { library[(size_t) i]->setBounds (20, 167 + i * 36 + (i >= 9 ? 24 : 0), 113, 29); library[(size_t) i]->setVisible (i < 9 || playing()); }
         const int footer = h - (playing() ? 206 : 136);
+        collection.setBounds (18, 158, 122, 28);
+        libraryViewport.setBounds (18, 196, 122, footer - 206);
+        int libraryY = 0;
+        const auto available = P::collectionTypes (collection.getSelectedId() - 1);
+        for (int i = 0; i < (int) library.size(); ++i)
+        {
+            const bool visible = available.contains (i + 1) && (! P::isInstrument (i + 1) || playing());
+            library[(size_t) i]->setVisible (visible);
+            if (visible) { library[(size_t) i]->setBounds (0, libraryY, 110, 29); libraryY += 36; }
+        }
+        libraryPanel.setSize (112, libraryY);
         viewport.setBounds (154, 128, right - 168, footer - 140);
         const int rw = viewport.getWidth() - 11; int y = 24;
-        if (playing()) for (int n = 8; n < 10; ++n) { rows[(size_t) n]->setBounds (0, y, rw, rows[(size_t) n]->rowHeight()); y += rows[(size_t) n]->rowHeight() + 5; }
-        for (int n = 8; n < 10; ++n) rows[(size_t) n]->setVisible (playing());
+        if (playing()) for (int n = P::effectSlots; n < P::nodes; ++n) { rows[(size_t) n]->setBounds (0, y, rw, rows[(size_t) n]->rowHeight()); y += rows[(size_t) n]->rowHeight() + 5; }
+        for (int n = P::effectSlots; n < P::nodes; ++n) rows[(size_t) n]->setVisible (playing());
         if (playing()) y += 25;
         for (int n = 0; n < 8; ++n)
         { if (n == 6) y += 27; rows[(size_t) n]->setBounds (0, y, rw, rows[(size_t) n]->rowHeight()); y += rows[(size_t) n]->rowHeight() + 5; }
@@ -494,10 +653,13 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         auto addLane = [this] (juce::String name, int top)
         { auto l = std::make_unique<juce::Label>(); l->setText (name, juce::dontSendNotification); l->setFont (sattari::brand::fontOptions (10)); l->setColour (juce::Label::textColourId, muted); l->setBounds (3, top, 600, 20); rack.addAndMakeVisible (*l); laneLabels.push_back (std::move (l)); };
         if (playing()) addLane ("INSTRUMENT LAYERS", 0);
-        addLane ("MAIN / SERIAL", rows[0]->getY() - 23); addLane ("AMBIENCE / PARALLEL RETURN", rows[6]->getY() - 23);
+        addLane ("MAIN / SERIAL", rows[0]->getY() - 23); addLane (p.value ("serial") >= .5f ? "MAIN / SERIAL CONTINUED" : "AMBIENCE / PARALLEL RETURN", rows[6]->getY() - 23);
         meterL.setBounds (right + 8, 166, 152, 74); meterR.setBounds (right + 8, 250, 152, 74);
         clip.setBounds (right + 110, 348, 50, 25);
-        output.setBounds (right + 28, 408, 110, 94); ambience.setBounds (right + 28, 514, 110, 94);
+        output.setBounds (right + 28, playing() ? 400 : 408, 110, playing() ? 84 : 94);
+        ambience.setBounds (right + 28, playing() ? 494 : 514, 110, playing() ? 84 : 94);
+        protect.setBounds (right + 12, playing() ? 586 : 612, 155, 26);
+        serial.setBounds (right + 12, 128, 155, 26);
         const int macroWidth = (w - 184) / 8;
         for (int m = 0; m < 8; ++m)
         { macroKnobs[(size_t) m]->setBounds (154 + m * macroWidth, footer + 26, macroWidth - 25, 91); mapButtons[(size_t) m]->setBounds (154 + (m + 1) * macroWidth - 28, footer + 68, 24, 25); }
@@ -519,23 +681,29 @@ struct SattariModularEditor::View final : juce::Component, juce::Timer, juce::Mi
         label (g, "MODULES", { 22, 135, 110, 22 }, 11, muted);
         label (g, "PRESET", { 22, 84, 110, 24 }, 11, muted);
         label (g, "SCENES", { right - 190, 84, 60, 24 }, 10, muted);
-        label (g, "OUTPUT STAGE", { right + 12, 135, 150, 22 }, 11, muted);
         label (g, "0 VU = -18 dBFS", { right + 12, 324, 150, 18 }, 9, muted);
         label (g, "PEAK " + juce::String (juce::Decibels::gainToDecibels (juce::jmax (p.peak[0].load(), p.peak[1].load()), -90.0f), 1), { right + 12, 350, 92, 20 }, 10, muted);
         label (g, "DSP " + juce::String (p.cpu.load() * 100, 1) + "%", { right + 12, 380, 140, 18 }, 10, muted);
         label (g, "MACROS", { 22, footer + 26, 110, 24 }, 11, accent);
         label (g, "NATIVE ENGINE", { 22, h - 42, 120, 18 }, 9, accent);
-        label (g, JucePlugin_VersionString " / CANDIDATE", { 22, h - 24, 124, 14 }, 9, muted);
+        label (g, JucePlugin_VersionString " / DEVELOPMENT", { 22, h - 24, 124, 14 }, 9, muted);
     }
     P& p; AnalogLook look;
     juce::Viewport viewport; juce::Component rack;
+    juce::Viewport libraryViewport; juce::Component libraryPanel;
+    juce::ToggleButton protect { "Safety clip" };
+    juce::ToggleButton serial { "8 serial" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> protectAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> serialAttachment;
     std::array<std::unique_ptr<RackRow>, P::nodes> rows;
     std::vector<std::unique_ptr<juce::Label>> laneLabels;
     std::vector<std::unique_ptr<juce::TextButton>> library;
     std::array<juce::TextButton, 3> modes, scenes;
     juce::ComboBox presets;
+    juce::ComboBox collection;
     sattari::releaseui::IconButton save { sattari::releaseui::Icon::save, "Save preset" }, undo { sattari::releaseui::Icon::undo, "Undo" }, power { sattari::releaseui::Icon::power, "Master power" };
     Tool load { Icon::folder, "Load preset" }, redo { Icon::redo, "Redo" }, copy { Icon::copy, "Copy current A/B to other" };
+    Tool import { Icon::folder, "Import Vocal or Create preset" };
     Tool panic { Icon::stop, "All notes off" };
     juce::TextButton a, b, clip;
     juce::MidiKeyboardState keys; juce::MidiKeyboardComponent keyboard;

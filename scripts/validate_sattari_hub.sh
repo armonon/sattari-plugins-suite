@@ -15,11 +15,11 @@ manifest = json.loads(Path(sys.argv[1]).read_text())
 assert manifest["schemaVersion"] == 1
 assert manifest["suiteName"] == "Sattari Audio Suite"
 products = manifest["products"]
-assert len(products) == 48
+assert len({p["id"] for p in products}) == len(products)
 suites = manifest["suite"]
 assert len(suites) == 6
 assert {s["id"] for s in suites} == {
-    "compass", "auto-pitch", "instruments", "vocal", "mix", "create"
+    "compass", "auto-pitch", "modular", "royal-chain", "mix", "tools"
 }
 ids = {p["id"] for p in products}
 for required in ["auto-pitch", "voxkey", "brain", "sub-conjurer", "side-chain-master", "royal-chain", "sattari-arp"]:
@@ -37,7 +37,7 @@ for product in products:
         assert product.get("updateArchiveBytes", 0) > 0
 assert {p["id"] for p in products if p.get("shippingProfile") == "alpha"} == {
     "auto-pitch", "brain", "vocal", "mix", "create", "stack",
-    "sattari-arp", "sub-conjurer"
+    "sattari-arp", "sub-conjurer", "modular", "modular-instrument"
 }
 for suite in suites:
     members = [p for p in products if p.get("suite") == suite["id"]]

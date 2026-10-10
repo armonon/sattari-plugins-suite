@@ -40,6 +40,20 @@ int runRackProductContract (const char* expectedName,
         fail ("module menu contract mismatch");
 
     auto& state = processor.parameters();
+    // Hosts may send fractional values even to discrete boolean parameters.
+    for (const float value : { 0.22f, 0.81f })
+    {
+        for (auto* parameter : processor.getParameters())
+            if (parameter->isBoolean()) parameter->setValueNotifyingHost (value);
+        juce::MemoryBlock saved; processor.getStateInformation (saved);
+        for (auto* parameter : processor.getParameters())
+            if (parameter->isBoolean()) parameter->setValueNotifyingHost (1.0f - value);
+        processor.setStateInformation (saved.getData(), (int) saved.getSize());
+        for (auto* parameter : processor.getParameters())
+            if (parameter->isBoolean() && std::abs (parameter->getValue() - (value >= .5f ? 1.0f : 0.0f)) > .00001f)
+                fail ("boolean automation does not recall a canonical bit");
+    }
+    for (auto* parameter : processor.getParameters()) parameter->setValueNotifyingHost (parameter->getDefaultValue());
     const double sampleRates[] = { 44100.0, 48000.0, 96000.0 };
     const int blockSizes[] = { 64, 512 };
 

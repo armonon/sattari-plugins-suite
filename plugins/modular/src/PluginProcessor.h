@@ -4,16 +4,20 @@
 #include <atomic>
 #include <memory>
 
-class SattariModularProcessor final : public juce::AudioProcessor
+class SattariModularProcessor final : public juce::AudioProcessor, private juce::AsyncUpdater
 {
 public:
-    static constexpr int effectSlots = 8, mainSlots = 6, sourceSlots = 2;
-    static constexpr int nodes = 10, controls = 8, macros = 8, mappings = 2;
+    static constexpr int effectSlots = 8, mainSlots = 6, sourceSlots = 4;
+    static constexpr int nodes = effectSlots + sourceSlots, controls = 8, macros = 8, mappings = 2;
+    static constexpr int allControls = 64, legacyParameterCount = 160, previousParameterCount = 423;
+    static constexpr int previousNodes = 10, previousControls = 32;
     enum Type { empty, clean, eq, comp, heat, echo, space, pulse, deess, image,
-                granulator, rhythm, typeCount };
+                granulator, rhythm, doubleFx, riser, shimmer, warble, warp, vocoder, bass808,
+                externalEffect, externalInstrument, gate, face, glassChoir, chop,
+                transient, multiband, peakFx, typeCount };
     struct ControlInfo
     {
-        juce::String name, unit;
+        juce::String name, unit, parameterId;
         juce::NormalisableRange<float> range { 0.0f, 1.0f };
         juce::StringArray choices;
         float initial = 0.0f;
@@ -30,14 +34,14 @@ public:
     bool isMidiEffect() const override { return false; }
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override;
-    double getTailLengthSeconds() const override { return 30.0; }
+    double getTailLengthSeconds() const override;
     bool isBusesLayoutSupported (const BusesLayout&) const override;
     void prepareToPlay (double, int) override;
     void releaseResources() override;
     void reset() override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-    int getNumPrograms() override { return 4; }
+    int getNumPrograms() override { return 14; }
     int getCurrentProgram() override { return currentProgram.load(); }
     void setCurrentProgram (int) override;
     const juce::String getProgramName (int) override;
@@ -50,7 +54,15 @@ public:
     static juce::String macroId (int, const juce::String& suffix = "value");
     static juce::String typeName (int);
     static juce::StringArray availableTypes (int node);
+    static juce::Array<int> collectionTypes (int collection);
     static bool allowedType (int node, int type);
+    static bool isInstrument (int type) { return type == granulator || type == rhythm || type == chop || type == externalInstrument; }
+    static bool isHosted (int type) { return type == externalEffect || type == externalInstrument; }
+    juce::Array<juce::PluginDescription> scanHostedPlugin (const juce::File&, bool instrument, juce::String& error);
+    juce::Result loadHostedPlugin (int node, const juce::PluginDescription&);
+    juce::String hostedStatus (int node) const;
+    std::shared_ptr<juce::AudioPluginInstance> hostedInstance (int node) const;
+    void serviceHostedChanges();
     int nodeType (int) const;
     ControlInfo info (int type, int control) const;
     float value (const juce::String&) const;
@@ -71,11 +83,14 @@ public:
     int selectedAB() const { const juce::ScopedLock lock (storageLock); return abIndex; }
     void copyAB();
     bool isMapped (int node, int control) const;
+    int mappingTarget (int macro, int mapping) const;
+    void setMappingTarget (int macro, int mapping, int target);
     float effectiveValue (int node, int control) const;
     juce::Result loadSample (int layer, const juce::File&);
     juce::String sampleName (int layer) const;
     juce::Result savePreset (const juce::File&);
     juce::Result loadPreset (const juce::File&);
+    juce::Result importLegacyPreset (const juce::File&);
     void queueNote (int note, float velocity, bool on);
     int currentWorkspace() const { return juce::roundToInt (value ("workspace")); }
     juce::String presetName() const;
@@ -107,6 +122,8 @@ private:
     void restore (const juce::ValueTree&);
     void selectModuleInternal (int, int);
     void resetEngine();
+    void resetLayerRouting();
+    void handleAsyncUpdate() override;
     void process (juce::AudioBuffer<float>&, juce::MidiBuffer&, bool);
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariModularProcessor)
 };

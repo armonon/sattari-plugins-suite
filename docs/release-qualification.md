@@ -1,6 +1,14 @@
-# Non-StemDeck release qualification
+# Current Launch Scope
 
-This checklist closes the current release scope; it is not a feature roadmap or a public-release approval. Keep the suite's internal-alpha label until the exact shipping artifacts pass their acceptance gates.
+The consolidated October 2026 candidate scope and workflow are documented in
+`docs/launch-readiness.md`. The six-product descriptions below are historical;
+shared contract-runner instructions still apply. Always configure with
+`SATTARI_COPY_PLUGINS_AFTER_BUILD=OFF` when qualifying without installation.
+
+## Non-StemDeck Release Qualification
+
+This checklist records the earlier release baseline, not public-release approval.
+Keep internal labels until the exact shipping artifacts pass their acceptance gates.
 
 ## Safe native build/test entry point
 

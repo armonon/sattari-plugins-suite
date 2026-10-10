@@ -1,4 +1,6 @@
 window.SATTARI_PRODUCT_SHOTS = {
+  "modular": { src: "assets/modular/modular-fx.png", alt: "Sattari Modular FX development rack" },
+  "modular-instrument": { src: "assets/modular/modular-instrument.png", alt: "Sattari Modular Instrument development rack" },
   "auto-pitch": {
     src: "assets/products/auto-pitch.png",
     alt: "Sattari Auto Pitch realtime vocal correction interface"
