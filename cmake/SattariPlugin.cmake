@@ -171,6 +171,17 @@ function(sattari_add_plugin)
             COMMENT "Ad-hoc signing ${SAP_PRODUCT_NAME} Standalone bundle")
     endif()
 
+    # JUCE 8's VST3 helper signs before generating moduleinfo.json. Seal the
+    # completed bundle after that step, including when copying is disabled.
+    # The earlier signature otherwise fails codesign --verify --deep --strict.
+    if(APPLE AND TARGET ${SAP_TARGET}_VST3)
+        add_custom_command(TARGET ${SAP_TARGET}_VST3 POST_BUILD
+            COMMAND /usr/bin/codesign --force --deep --sign -
+                "$<TARGET_BUNDLE_DIR:${SAP_TARGET}_VST3>"
+            COMMENT "Ad-hoc signing completed ${SAP_PRODUCT_NAME} VST3 bundle"
+            VERBATIM)
+    endif()
+
     target_sources(${SAP_TARGET} PRIVATE ${SAP_SOURCES})
 
     target_compile_definitions(${SAP_TARGET}
