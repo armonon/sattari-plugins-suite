@@ -266,6 +266,13 @@ int main (int argc, char** argv)
     {
         a.outputWav.getParentDirectory().createDirectory();
         juce::WavAudioFormat wav;
+        // JUCE appends to an existing output stream. A repeated benchmark must
+        // replace the WAV instead of appending a second RIFF document.
+        if (a.outputWav.exists() && ! a.outputWav.deleteFile())
+        {
+            std::fprintf (stderr, "FAIL: cannot replace output WAV\n");
+            return 1;
+        }
         std::unique_ptr<juce::OutputStream> stream (a.outputWav.createOutputStream());
         if (stream != nullptr)
         {

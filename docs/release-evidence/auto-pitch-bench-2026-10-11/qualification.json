@@ -1,0 +1,23 @@
+{
+  "same_destination_repeated_render": "PASS",
+  "refuse_unreplaceable_output": "PASS",
+  "binary_sha256": "d428950ae0b2560a4a9e31e70d2f6b48f6bd8c33a288f3aede38c9faab410c90",
+  "results": [
+    {
+      "run": 1,
+      "frames": 144000,
+      "rate": 48000,
+      "channels": 2,
+      "bytes": 576104,
+      "sha256": "939f8408a3b3cc3547967ac6f0642320cb1704ad4a64281ae027f86bcc86a7ef"
+    },
+    {
+      "run": 2,
+      "frames": 144000,
+      "rate": 48000,
+      "channels": 2,
+      "bytes": 576104,
+      "sha256": "939f8408a3b3cc3547967ac6f0642320cb1704ad4a64281ae027f86bcc86a7ef"
+    }
+  ]
+}
