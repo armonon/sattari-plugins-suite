@@ -822,6 +822,8 @@ private:
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
     // only insofar as Random is seeded the same way.
+    // Persist the per-instance seed so repeated session bounces remain reproducible.
+    juce::int64 humanizeSeed = juce::Random::getSystemRandom().nextInt64();
     juce::Random humanizeRng;
     double humanizeTargetCents = 0.0;
     double humanizeSmoothedCents = 0.0;

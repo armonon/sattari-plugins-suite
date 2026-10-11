@@ -1474,7 +1474,7 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
     // normal preset used to leave MIDI targeting, graph correction, generated
     // vibrato, or other advanced modes silently active. Start every workflow
     // from a neutral tuning engine, then layer its intentional differences.
-    const PV neutral {
+    PV neutral {
         {"style",0},{"enableCorrection",1},{"amount",1.0f},{"speed",0.85f},
         {"doNoHarm",1},{"formantPreserve",1},{"formantShift",0},{"classicMode",0},
         {"flexTune",0},{"transition",0.5f},{"throat",1.0f},{"humanize",0},
@@ -1496,6 +1496,18 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"h1Solo",0},{"h2Solo",0},{"h3Solo",0},{"h4Solo",0},
         {"h1Formant",0},{"h2Formant",0},{"h3Formant",0},{"h4Formant",0}
     };
+    //  Every per-voice harmony parameter (h1..h4 level, pan, role, degrees, octave, delay,
+    //  detune, vibrato, formant ...) returns to its default too. Listing them by hand left pan
+    //  and level out, so a Harmony preset's voice placement carried into the next preset.
+    //  Taken from the processor's own defaults so a new per-voice parameter is covered.
+    for (auto* p : audioProcessor.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+        {
+            const auto id = rp->getParameterID();
+            if (id.length() >= 2 && id[0] == 'h' && id[1] >= '1' && id[1] <= '4'
+                && std::none_of (neutral.begin(), neutral.end(), [&] (const auto& kv) { return kv.first == id; }))
+                neutral.emplace_back (id, rp->convertFrom0to1 (rp->getDefaultValue()));
+        }
     auto addWorkflow = [this, &neutral] (const juce::String& name, PV values)
     {
         PV complete = neutral;

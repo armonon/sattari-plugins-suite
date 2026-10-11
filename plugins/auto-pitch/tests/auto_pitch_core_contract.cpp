@@ -518,6 +518,102 @@ int main (int argc, char** argv)
             return 1;
         }
 
+    // Repair legacy duplicate state sections and keep repeated save/load bounded.
+    {
+        SattariAutoPitchAudioProcessor restored;
+        juce::MemoryBlock initial;
+        restored.getStateInformation (initial);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (initial.getData(), (int) initial.getSize());
+        auto legacy = juce::ValueTree::fromXml (*xml);
+        auto staleNotes = legacy.getChildWithName ("PitchEdits");
+        juce::ValueTree staleNote ("Note");
+        staleNote.setProperty ("id", 1, nullptr);
+        staleNote.setProperty ("start", 0.0, nullptr);
+        staleNote.setProperty ("end", 1.0, nullptr);
+        staleNote.setProperty ("source", 60, nullptr);
+        staleNote.setProperty ("target", 72, nullptr);
+        staleNotes.appendChild (staleNote, nullptr);
+        legacy.appendChild (juce::ValueTree ("PitchEdits"), nullptr); // newest: notes deleted
+        juce::ValueTree newestLearn ("MidiLearn"), mapping ("Map");
+        mapping.setProperty ("cc", 7, nullptr);
+        mapping.setProperty ("p", "amount", nullptr);
+        newestLearn.appendChild (mapping, nullptr);
+        legacy.appendChild (newestLearn, nullptr);
+        juce::MemoryBlock legacyData;
+        juce::AudioProcessor::copyXmlToBinary (*legacy.createXml(), legacyData);
+        restored.setStateInformation (legacyData.getData(), (int) legacyData.getSize());
+        if (! restored.getPitchEdits().empty())
+        { std::cerr << "legacy restore resurrected deleted pitch notes\n"; return 1; }
+        size_t stableSize = 0;
+        for (int cycle = 0; cycle < 6; ++cycle)
+        {
+            juce::MemoryBlock data;
+            restored.getStateInformation (data);
+            auto savedXml = juce::AudioProcessor::getXmlFromBinary (data.getData(), (int) data.getSize());
+            auto tree = juce::ValueTree::fromXml (*savedXml);
+            for (const auto* name : { "KeyMap", "PitchEdits", "MidiLearn" })
+            {
+                int count = 0;
+                for (int i = 0; i < tree.getNumChildren(); ++i)
+                    if (tree.getChild (i).hasType (name)) ++count;
+                if (count != 1)
+                { std::cerr << "save duplicated extension " << name << "\n"; return 1; }
+            }
+            auto learned = tree.getChildWithName ("MidiLearn").getChild (0);
+            if (learned.getProperty ("p").toString() != "amount")
+            { std::cerr << "newest MIDI mapping was discarded\n"; return 1; }
+            if (cycle > 0 && data.getSize() != stableSize)
+            { std::cerr << "saved session grew during round trip\n"; return 1; }
+            stableSize = data.getSize();
+            restored.setStateInformation (data.getData(), (int) data.getSize());
+        }
+        std::cout << "  legacySessionRepair=PASS (deleted notes, newest MIDI mapping, six bounded round trips)\n";
+    }
+
+    // The same saved session must produce the same Humanize walk on every bounce.
+    {
+        SattariAutoPitchAudioProcessor original;
+        setParameter (original.parameters(), "humanize", 1.0f);
+        setParameter (original.parameters(), "scale", 2.0f);
+        setParameter (original.parameters(), "scaleMode", 2.0f);
+        juce::MemoryBlock saved;
+        original.getStateInformation (saved);
+        auto render = [] (SattariAutoPitchAudioProcessor& instance)
+        {
+            constexpr int block = 512, blocks = 150;
+            std::vector<float> audio;
+            instance.prepareToPlay (48000.0, block);
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::AudioBuffer<float> buffer (2, block);
+                for (int i = 0; i < block; ++i)
+                {
+                    const float value = (float) (0.2 * std::sin (juce::MathConstants<double>::twoPi * 224.0 * (b * block + i) / 48000.0));
+                    buffer.setSample (0, i, value); buffer.setSample (1, i, value);
+                }
+                juce::MidiBuffer midi;
+                instance.processBlock (buffer, midi);
+                audio.insert (audio.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + block);
+            }
+            instance.releaseResources();
+            return audio;
+        };
+        const auto first = render (original), repeat = render (original);
+        SattariAutoPitchAudioProcessor reopened;
+        reopened.setStateInformation (saved.getData(), (int) saved.getSize());
+        const auto roundTrip = render (reopened);
+        double energy = 0.0, worst = 0.0;
+        for (size_t i = 0; i < first.size(); ++i)
+        {
+            energy += (double) first[i] * first[i];
+            worst = std::max (worst, (double) std::abs (first[i] - repeat[i]));
+            worst = std::max (worst, (double) std::abs (first[i] - roundTrip[i]));
+        }
+        if (worst > 1.0e-6 || energy < 1.0)
+        { std::cerr << "Humanize bounce changed after prepare/reopen: " << worst << "\n"; return 1; }
+        std::cout << "  humanizeRepeatability=PASS (prepare and project reopen, non-silent render)\n";
+    }
+
     // Factory workflows are complete states, not sticky deltas. Reproduce the
     // real UI sequence that previously failed: load MIDI Directed, then Natural.
     // The second choice must clear MIDI/graph/transpose/poly/vibrato modes and
@@ -552,7 +648,17 @@ int main (int argc, char** argv)
         setParameter (apvts, "xposeMode", 1.0f);
         setParameter (apvts, "polyphonic", 1.0f);
         setParameter (apvts, "addVibrato", 75.0f);
+        setParameter (apvts, "h1Pan", 0.9f);
+        setParameter (apvts, "h1Level", -2.0f);
+        setParameter (apvts, "h3Delay", 140.0f);
         factory->setSelectedItemIndex (0, juce::sendNotificationSync);
+        for (const auto* id : { "h1Pan", "h1Level", "h3Delay" })
+        {
+            auto* parameter = apvts.getParameter (id);
+            const float expected = parameter->convertFrom0to1 (parameter->getDefaultValue());
+            if (std::abs (apvts.getRawParameterValue (id)->load() - expected) > 0.001f)
+            { std::cerr << "factory workflow kept a stale harmony parameter: " << id << "\n"; return 1; }
+        }
         if (apvts.getRawParameterValue ("midiTarget")->load() > 0.5f
             || apvts.getRawParameterValue ("capturePitchEdits")->load() > 0.5f
             || apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f

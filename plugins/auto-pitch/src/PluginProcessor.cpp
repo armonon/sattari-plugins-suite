@@ -124,6 +124,34 @@ juce::var readObjectVar (const juce::var& object, const juce::Identifier& key)
     return {};
 }
 
+//  Session sections that live beside the parameters in the saved state. apvts.copyState() hands
+//  back whatever the last restore put into the parameter tree, so each save used to append a
+//  fresh copy after the old one (4210 -> 4262 -> 4314 bytes per cycle), and restore read the
+//  FIRST, i.e. oldest, copy: pitch notes deleted since the last reload came back. Keep exactly
+//  one copy of each: the newest.
+constexpr const char* kSessionSections[] = { "KeyMap", "PitchEdits", "MidiLearn" };
+
+void keepOnlyNewestSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+    {
+        int newest = -1;
+        for (int i = 0; i < state.getNumChildren(); ++i)
+            if (state.getChild (i).hasType (name)) newest = i;
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (i != newest && state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+    }
+}
+
+void removeSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+}
+
 double midiFromHz (double frequencyHz, double referenceHz = 440.0)
 {
     if (frequencyHz <= 0.0 || referenceHz <= 0.0)
@@ -1417,6 +1445,10 @@ void SattariAutoPitchAudioProcessor::reset()
 
 void SattariAutoPitchAudioProcessor::resetPitchState (int)
 {
+    humanizeRng.setSeed (humanizeSeed);
+    humanizeTargetCents = 0.0;
+    humanizeSmoothedCents = 0.0;
+    humanizeBlocksUntilNewTarget = 0;
     pitchFrameBuffer.assign ((size_t) pitchFrameSize, 0.0f);
     pitchWriteIndex = 0;
     pitchSamplesUntilAnalysis = pitchHopSize;
@@ -6265,10 +6297,11 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 {
     auto state = apvts.copyState();
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+    state.setProperty ("humanizeSeed", humanizeSeed, nullptr);
     // Restored APVTS state still contains its old extension trees. Replace
     // those snapshots instead of appending duplicates: readers select the
     // first child and would otherwise resurrect stale notes/key maps forever.
-    for (const auto* name : { "KeyMap", "PitchEdits" })
+    for (const auto* name : kSessionSections)
         for (auto previous = state.getChildWithName (name); previous.isValid();
              previous = state.getChildWithName (name))
             state.removeChild (previous, nullptr);
@@ -6361,6 +6394,7 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        keepOnlyNewestSessionSections (restored);
         // APVTS retains the current value for absent parameter nodes. An old
         // project loaded into a reused instance must not inherit new formant
         // settings from the project/preset that happened to be open before it.
@@ -6473,6 +6507,9 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
 
         midiLearn.loadFrom (restored);
 
+        if (restored.hasProperty ("humanizeSeed"))
+            humanizeSeed = (juce::int64) restored.getProperty ("humanizeSeed");
+        removeSessionSections (restored);
         apvts.replaceState (restored);
         if (! hasExtendedScale)
         {
