@@ -65,7 +65,7 @@ public:
             f ("atk"   + n, nm + " Attack",      0.1f, 120.0f,  defAtk[b],   0.1f,  0.5f, "ms");
             f ("rel"   + n, nm + " Release",    20.0f, 1500.0f, defRel[b],   1.0f,  0.5f, "ms");
             f ("mk"    + n, nm + " Makeup",    -12.0f, 24.0f,   0.0f,        0.1f,  1.0f, "dB");
-            out.push_back (std::make_unique<juce::AudioParameterBool> (
+            out.push_back (std::make_unique<sattari::parameters::Bool> (
                 juce::ParameterID (prefix + "solo" + n, 1), nm + " Solo", false));
         }
 

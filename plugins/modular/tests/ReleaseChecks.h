@@ -132,15 +132,16 @@ void releaseChecks (P& p, const juce::File& output)
 
     for (int type = 1; type < P::typeCount; ++type)
     {
-        p.clearRack(); p.set ("workspace", type >= P::granulator ? 2 : 0);
+        p.clearRack(); p.set ("workspace", P::isInstrument (type) ? 2 : 0);
         if (SATTARI_MODULAR_SYNTH) p.selectModule (8, P::granulator);
-        const int node = type >= P::granulator ? 8 : 0; p.selectModule (node, type);
+        const int node = P::isInstrument (type) ? 8 : 0; p.selectModule (node, type);
+        check (p.nodeType (node) == type, "Profile exercises the requested module");
         p.queueNote (60, 0.5f, true); process (p, block, 16, true);
         allocationProbe::count = 0;
         const auto start = std::chrono::steady_clock::now();
         for (int iteration = 0; iteration < 80; ++iteration)
         {
-            for (int control = 0; control < P::controls; ++control)
+            for (int control = 0; control < P::allControls; ++control)
                 p.set (P::controlId (node, control), iteration % 3 == 0 ? 0 : iteration % 3 == 1 ? 1 : random.nextFloat(), false);
             for (int ch = 0; ch < 2; ++ch) for (int s = 0; s < 256; ++s) block.setSample (ch, s, 0.15f * std::sin ((float) (s + iteration * 256) * 0.1f));
             allocationProbe::armed = true;

@@ -8,13 +8,25 @@
   "updateFeedSHA256": null,
   "suite": [
     {
-      "id": "compass",
-      "name": "Sattari Compass",
-      "verb": "knows",
-      "accent": "blue",
-      "tier": "free",
-      "tagline": "The session authority. Detects key, chord, reference, energy and musical onsets, reads host tempo, and publishes the context you approve.",
-      "primary": "brain"
+      "id": "modular",
+      "name": "Sattari Modular",
+      "verb": "builds",
+      "accent": "amber",
+      "tier": "paid",
+      "tagline": "Native effects and layered instruments in one chain platform, with VST3 hosting.",
+      "primary": "modular",
+      "kind": "flagship",
+      "page": "modular.html"
+    },
+    {
+      "id": "royal-chain",
+      "name": "Sattari Royal Chain",
+      "verb": "finishes",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "A focused vocal finishing chain with tuning, dynamics, tone and ambience.",
+      "primary": "royal-chain",
+      "kind": "flagship"
     },
     {
       "id": "auto-pitch",
@@ -22,44 +34,100 @@
       "verb": "tunes",
       "accent": "mint",
       "tier": "paid",
-      "tagline": "Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.",
-      "primary": "auto-pitch"
-    },
-    {
-      "id": "instruments",
-      "name": "Sattari Instruments",
-      "verb": "makes",
-      "accent": "amber",
-      "tier": "paid",
-      "tagline": "Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.",
-      "primary": "stack"
-    },
-    {
-      "id": "vocal",
-      "name": "Sattari Vocal",
-      "verb": "sings",
-      "accent": "mint",
-      "tier": "paid",
-      "tagline": "An eight-slot vocal finishing rack for cleanup, dynamics, tone, doubling and space.",
-      "primary": "vocal"
+      "tagline": "Precision vocal tuning, captured-note editing and harmony.",
+      "primary": "auto-pitch",
+      "kind": "flagship"
     },
     {
       "id": "mix",
       "name": "Sattari Mix",
-      "verb": "controls",
-      "accent": "mint",
+      "verb": "balances",
+      "accent": "blue",
       "tier": "paid",
-      "tagline": "Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.",
-      "primary": "mix"
+      "tagline": "Linked-track analysis and gain, EQ and dynamics proposals with compare and undo.",
+      "primary": "mix",
+      "kind": "flagship"
+    },
+    {
+      "id": "tools",
+      "name": "Sattari Tools",
+      "verb": "shapes",
+      "accent": "amber",
+      "tier": "bundle",
+      "tagline": "Arpeggiation, low-end generation, MIDI mapping, ducking and timing alignment.",
+      "primary": "sattari-arp",
+      "kind": "tools"
+    },
+    {
+      "id": "compass",
+      "name": "Sattari Compass",
+      "verb": "measures",
+      "accent": "blue",
+      "tier": "free",
+      "tagline": "Session context, key detection, tuning displays and analysis utilities.",
+      "primary": "brain",
+      "kind": "foundation"
+    }
+  ],
+  "collections": [
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal Collection",
+      "destination": "modular",
+      "members": [
+        "clean",
+        "gate",
+        "deess",
+        "eq",
+        "comp",
+        "heat",
+        "double",
+        "face",
+        "glass-choir",
+        "space"
+      ]
     },
     {
       "id": "create",
-      "name": "Sattari Create",
-      "verb": "transforms",
-      "accent": "violet",
-      "tier": "paid",
-      "tagline": "Musical effects that can follow approved key and tempo context from Compass.",
-      "primary": "create"
+      "name": "Sattari Create Collection",
+      "destination": "modular",
+      "members": [
+        "echo",
+        "heat",
+        "pulse",
+        "riser",
+        "shimmer",
+        "space",
+        "warble",
+        "warp",
+        "vocoder",
+        "eightoheight"
+      ]
+    },
+    {
+      "id": "instruments",
+      "name": "Sattari Instruments Collection",
+      "destination": "modular",
+      "members": [
+        "chop",
+        "granulator",
+        "rhythm-genie"
+      ]
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix Collection",
+      "destination": "modular",
+      "members": [
+        "clean",
+        "eq",
+        "comp",
+        "gate",
+        "peak",
+        "multiband",
+        "imager",
+        "transient"
+      ]
     }
   ],
   "products": [
@@ -80,6 +148,8 @@
       "version": "0.2.0-alpha",
       "suite": "auto-pitch",
       "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -115,6 +185,8 @@
       "version": "0.2.0-alpha",
       "suite": "compass",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -148,8 +220,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "held",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -183,8 +257,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "held",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -218,8 +294,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "held",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -255,6 +333,8 @@
       "version": "0.2.0-alpha",
       "suite": "mix",
       "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -288,8 +368,10 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
-      "suite": "create",
-      "suiteRole": "primary",
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "portfolioStatus": "legacy",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -323,8 +405,10 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
-      "suite": "vocal",
-      "suiteRole": "primary",
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "portfolioStatus": "legacy",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -358,8 +442,10 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
-      "suite": "instruments",
-      "suiteRole": "primary",
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "portfolioStatus": "legacy",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -393,8 +479,10 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "tools",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -428,8 +516,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "tools",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -463,8 +553,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
-      "suiteRole": "component",
+      "suite": "royal-chain",
+      "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -498,8 +590,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
+      "suite": "auto-pitch",
       "suiteRole": "component",
+      "portfolioStatus": "migration-pending",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -535,6 +629,8 @@
       "version": "0.2.0-alpha",
       "suite": "auto-pitch",
       "suiteRole": "component",
+      "portfolioStatus": "specialist",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -568,8 +664,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
-      "suiteRole": "component",
+      "suite": "royal-chain",
+      "suiteRole": "legacy",
+      "portfolioStatus": "legacy",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -603,8 +701,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "instruments"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -638,8 +740,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "instruments"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -672,8 +778,10 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
-      "suite": "instruments",
-      "suiteRole": "component",
+      "suite": "tools",
+      "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -703,7 +811,9 @@
       "shippingProfile": null,
       "version": "0.2.0-alpha",
       "suite": "mix",
-      "suiteRole": "component",
+      "suiteRole": "legacy",
+      "portfolioStatus": "legacy",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -737,8 +847,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "tools",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -772,8 +884,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -809,6 +925,8 @@
       "version": "0.2.0-alpha",
       "suite": "compass",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -842,8 +960,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -877,8 +999,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -912,8 +1038,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -947,8 +1077,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -982,8 +1116,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "compass",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -1017,8 +1153,10 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "tools",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -1052,8 +1190,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1087,8 +1230,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1122,8 +1270,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1157,8 +1310,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1192,8 +1350,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1227,8 +1389,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1262,8 +1428,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1297,8 +1467,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1332,8 +1506,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1367,8 +1546,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1402,8 +1585,13 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1437,8 +1625,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1472,8 +1664,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1507,8 +1703,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1542,8 +1742,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "mix",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "mix"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1577,8 +1781,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "create",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "create"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1614,6 +1822,8 @@
       "version": "0.2.0-alpha",
       "suite": "compass",
       "suiteRole": "component",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -1647,8 +1857,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "instruments",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "instruments"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1684,6 +1898,8 @@
       "version": "0.2.0-alpha",
       "suite": "compass",
       "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
       "bundles": [
         {
           "kind": "AU",
@@ -1717,8 +1933,12 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
-      "suite": "vocal",
+      "suite": "modular",
       "suiteRole": "component",
+      "portfolioStatus": "module",
+      "collections": [
+        "vocal"
+      ],
       "bundles": [
         {
           "kind": "AU",
@@ -1734,6 +1954,86 @@
           "kind": "Standalone",
           "installSubpath": "Applications/Sattari Glass Choir.app",
           "relativeSourcePath": "build/all/plugins/glass-choir/SattariGlassChoir_artefacts/Release/Standalone/Sattari Glass Choir.app"
+        }
+      ]
+    },
+    {
+      "id": "modular",
+      "name": "Sattari Modular FX",
+      "category": "Modular rack",
+      "accent": "#f5a24b",
+      "description": "Sattari Modular FX \u2014 Modular rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "modular",
+      "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "collections": [],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Modular FX.component",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularFX_artefacts/Release/AU/Sattari Modular FX.component",
+          "expectedVersion": "0.2.0"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Modular FX.vst3",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularFX_artefacts/Release/VST3/Sattari Modular FX.vst3",
+          "expectedVersion": "0.2.0"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Modular FX.app",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularFX_artefacts/Release/Standalone/Sattari Modular FX.app",
+          "expectedVersion": "0.2.0"
+        }
+      ]
+    },
+    {
+      "id": "modular-instrument",
+      "name": "Sattari Modular Instrument",
+      "category": "Modular rack",
+      "accent": "#f5a24b",
+      "description": "Sattari Modular Instrument \u2014 Modular rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "modular",
+      "suiteRole": "variant",
+      "portfolioStatus": "active",
+      "collections": [],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Modular Instrument.component",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularInstrument_artefacts/Release/AU/Sattari Modular Instrument.component",
+          "expectedVersion": "0.2.0"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Modular Instrument.vst3",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularInstrument_artefacts/Release/VST3/Sattari Modular Instrument.vst3",
+          "expectedVersion": "0.2.0"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Modular Instrument.app",
+          "relativeSourcePath": "build/all/plugins/modular/SattariModularInstrument_artefacts/Release/Standalone/Sattari Modular Instrument.app",
+          "expectedVersion": "0.2.0"
         }
       ]
     }

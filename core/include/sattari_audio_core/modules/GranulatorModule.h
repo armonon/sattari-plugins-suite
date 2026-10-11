@@ -412,7 +412,7 @@ public:
     {
         using FP = juce::AudioParameterFloat;
         using IP = juce::AudioParameterInt;
-        using BP = juce::AudioParameterBool;
+        using BP = sattari::parameters::Bool;
         using CP = juce::AudioParameterChoice;
         using R  = juce::NormalisableRange<float>;
     

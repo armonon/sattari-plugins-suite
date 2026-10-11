@@ -256,6 +256,7 @@ public:
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -765,6 +766,14 @@ private:
     // repeatedly spiking transitionBoost=1.0 on every crossing.
     int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
+    // Dry signal delayed by the reported latency so host bypass stays in time.
+    // Sized in prepare to cover the largest latency this instance can report.
+    // Fed with the dry input on EVERY block (bypassed or not), so engaging bypass
+    // plays the audio of one latency ago rather than the tail of the last bypass.
+    juce::AudioBuffer<float> bypassDelay;
+    int bypassDelayWrite = 0;
+    void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
+
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
     std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION
@@ -813,6 +822,8 @@ private:
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
     // only insofar as Random is seeded the same way.
+    // Persist the per-instance seed so repeated session bounces remain reproducible.
+    juce::int64 humanizeSeed = juce::Random::getSystemRandom().nextInt64();
     juce::Random humanizeRng;
     double humanizeTargetCents = 0.0;
     double humanizeSmoothedCents = 0.0;
@@ -966,6 +977,9 @@ private:
     // signalsmith-stretch — MIT, secondary low-latency engine (active when
     // elastique SDK is absent). Single instance manages all channels.
     signalsmith::stretch::SignalsmithStretch<float> ssStretch;
+    // reset() on an unconfigured stretch dereferences null, and hosts may call
+    // releaseResources() without a prior prepareToPlay() (scan, remove, teardown).
+    bool ssConfigured = false;
     juce::AudioBuffer<float> ssOutput;
     std::vector<const float*> ssInputPtrs;
     std::vector<float*>       ssOutputPtrs;

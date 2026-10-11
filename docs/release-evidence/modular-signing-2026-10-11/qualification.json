@@ -1,0 +1,205 @@
+{
+  "build_evidence": "/Users/lillypad/Projects/plugins-account-20261010/docs/release-evidence/modular-2026-10-10",
+  "candidate_only": true,
+  "bundles": [
+    {
+      "bundle": "AU/Sattari Modular FX.component",
+      "pre_sign_sha256": "722f2ae62cae86d9a25202f9e7576d53ffb8b5680997adc778d6207e50c7d184",
+      "signed_sha256": "7ee5c939841ca7f752dbe846060eb04bc873d685971e56b68dbcb116bc19601d",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/AU/Sattari Modular FX.component/Contents/MacOS/Sattari Modular FX\nIdentifier=com.Sattari.SattariModularFX\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=14248 flags=0x10000(runtime) hashes=438+3 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=5feccaaf9e0ec183c6a67a8738fd81d9091ce157\nCandidateCDHashFull sha256=5feccaaf9e0ec183c6a67a8738fd81d9091ce157903f927687221749a3b753e8\nHash choices=sha256\nCMSDigest=5feccaaf9e0ec183c6a67a8738fd81d9091ce157903f927687221749a3b753e8\nCMSDigestType=2\nCDHash=5feccaaf9e0ec183c6a67a8738fd81d9091ce157\nSignature size=9045\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:07\u202fAM\nInfo.plist entries=13\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=1 size=188\n"
+    },
+    {
+      "bundle": "VST3/Sattari Modular FX.vst3",
+      "pre_sign_sha256": "73c9cddd8e323a506ba297a1a1f9472f61c2cd8bddaa0a214e7fddb536bf6ea1",
+      "signed_sha256": "a039a21861a00cea1d79631039028724c3bba601257c45d25a35df55b198e439",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/VST3/Sattari Modular FX.vst3/Contents/MacOS/Sattari Modular FX\nIdentifier=com.Sattari.SattariModularFX\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=14280 flags=0x10000(runtime) hashes=439+3 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=d992face6714e1f49dcfd2ab19488cc1b26febcd\nCandidateCDHashFull sha256=d992face6714e1f49dcfd2ab19488cc1b26febcdb77afa4e208867a6a6d4d5ff\nHash choices=sha256\nCMSDigest=d992face6714e1f49dcfd2ab19488cc1b26febcdb77afa4e208867a6a6d4d5ff\nCMSDigestType=2\nCDHash=d992face6714e1f49dcfd2ab19488cc1b26febcd\nSignature size=9044\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:07\u202fAM\nInfo.plist entries=12\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=1 size=188\n"
+    },
+    {
+      "bundle": "Standalone/Sattari Modular FX.app",
+      "pre_sign_sha256": "5b8185a501b822e3efc6e576e6796bcae1713783ea3ab7f3e72136334b8ce0d4",
+      "signed_sha256": "e894a451c335303c4dffedf839a021e6a6dc0cc5d4ec361495b932a225c3f9d0",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/Standalone/Sattari Modular FX.app/Contents/MacOS/Sattari Modular FX\nIdentifier=com.Sattari.SattariModularFX\nFormat=app bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=15240 flags=0x10000(runtime) hashes=465+7 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=79a6752555d857f28a17b327d4ea65c910e1c07f\nCandidateCDHashFull sha256=79a6752555d857f28a17b327d4ea65c910e1c07f02346ce9b07aa8196f42983a\nHash choices=sha256\nCMSDigest=79a6752555d857f28a17b327d4ea65c910e1c07f02346ce9b07aa8196f42983a\nCMSDigestType=2\nCDHash=79a6752555d857f28a17b327d4ea65c910e1c07f\nSignature size=9045\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:07\u202fAM\nInfo.plist entries=12\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=1 size=188\n"
+    },
+    {
+      "bundle": "AU/Sattari Modular Instrument.component",
+      "pre_sign_sha256": "4c68363c220f20d9d85ee71ae0fa59600d78e69c1e008d76d377b4ea96b24022",
+      "signed_sha256": "3ec50dbab874427e30fa447893bc5327b6f9c07b64f979ef8ac74eaed18b6350",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/AU/Sattari Modular Instrument.component/Contents/MacOS/Sattari Modular Instrument\nIdentifier=com.Sattari.SattariModularInstrument\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=14224 flags=0x10000(runtime) hashes=437+3 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=0a25f842d823c6597d29852b43b6e281ef4b31cd\nCandidateCDHashFull sha256=0a25f842d823c6597d29852b43b6e281ef4b31cd31edcd3eccc2f96da9cd16a5\nHash choices=sha256\nCMSDigest=0a25f842d823c6597d29852b43b6e281ef4b31cd31edcd3eccc2f96da9cd16a5\nCMSDigestType=2\nCDHash=0a25f842d823c6597d29852b43b6e281ef4b31cd\nSignature size=9044\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:08\u202fAM\nInfo.plist entries=13\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=1 size=196\n"
+    },
+    {
+      "bundle": "VST3/Sattari Modular Instrument.vst3",
+      "pre_sign_sha256": "42ae4818ca7e5e289ea96b325c2699e7b76f1ef652245befe48d15cee6bd934b",
+      "signed_sha256": "e379e6922ab5045a3328615b1408b3762c8a101a3790b11f45d62054033ff01f",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/VST3/Sattari Modular Instrument.vst3/Contents/MacOS/Sattari Modular Instrument\nIdentifier=com.Sattari.SattariModularInstrument\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=14256 flags=0x10000(runtime) hashes=438+3 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=9c0b90c7798774e98dfe6238edba08aff184c8b4\nCandidateCDHashFull sha256=9c0b90c7798774e98dfe6238edba08aff184c8b4732e97ea3ec98f0fab7c7133\nHash choices=sha256\nCMSDigest=9c0b90c7798774e98dfe6238edba08aff184c8b4732e97ea3ec98f0fab7c7133\nCMSDigestType=2\nCDHash=9c0b90c7798774e98dfe6238edba08aff184c8b4\nSignature size=9045\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:08\u202fAM\nInfo.plist entries=12\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=1 size=196\n"
+    },
+    {
+      "bundle": "Standalone/Sattari Modular Instrument.app",
+      "pre_sign_sha256": "935ef794e9cf8db349422bed71438eb3c38fca14bd173696d330c92615d9c49c",
+      "signed_sha256": "7c07ba2862f2b223ef53e5e756a95ab02fe0d8ce00f8d20576c639d0d654b99a",
+      "signature": "Executable=/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/Sattari-Modular-0.2.0-internal/Standalone/Sattari Modular Instrument.app/Contents/MacOS/Sattari Modular Instrument\nIdentifier=com.Sattari.SattariModularInstrument\nFormat=app bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=15216 flags=0x10000(runtime) hashes=464+7 location=embedded\nHash type=sha256 size=32\nCandidateCDHash sha256=783ecc19189820a821247eefff159b32f9aba7b6\nCandidateCDHashFull sha256=783ecc19189820a821247eefff159b32f9aba7b6f14f3a0c9b22f84fef12ffae\nHash choices=sha256\nCMSDigest=783ecc19189820a821247eefff159b32f9aba7b6f14f3a0c9b22f84fef12ffae\nCMSDigestType=2\nCDHash=783ecc19189820a821247eefff159b32f9aba7b6\nSignature size=9044\nAuthority=Developer ID Application: Armon Nasiri (NJBZDU7XZX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 11, 2026 at 10:09:09\u202fAM\nInfo.plist entries=12\nTeamIdentifier=NJBZDU7XZX\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=1 size=196\n"
+    }
+  ],
+  "prior_qualified_binaries_match": true,
+  "application_notarization": {
+    "name": "modular-notary-submission.zip",
+    "status": "Accepted",
+    "id": "8ea74f4c-042f-4387-a279-d1cc74929931",
+    "message": "Successfully received submission info",
+    "createdDate": "2026-10-11T17:09:29.152Z"
+  },
+  "standalone_ticket_validation": "Both apps stapled; stapler validate passed; spctl execute accepted as Notarized Developer ID",
+  "public_release": false,
+  "remaining_gates": [
+    "actual supported DAW acceptance",
+    "clean install/update/removal",
+    "listening acceptance",
+    "complete corresponding source and notice packaging",
+    "final download trust validation"
+  ],
+  "owner_direction": {
+    "distribution": "Open-source distribution is planned",
+    "mac_trust": "Sign and notarize the Mac packages"
+  },
+  "installer_certificate": "Unavailable; this candidate uses a signed DMG, not a PKG",
+  "disk_image": {
+    "sha256": "8461319a9087ec8d1bef87040396c89fb2eb1ba59ef0494ac847a2f157070988",
+    "notarization": {
+      "createdDate": "2026-10-11T17:10:51.598Z",
+      "id": "b818787b-8867-44b7-ac1d-b34eaacd5211",
+      "name": "Sattari-Modular-0.2.0-internal.dmg",
+      "status": "Accepted",
+      "message": "Successfully received submission info"
+    },
+    "mounted_readonly_checks": [
+      {
+        "check": [
+          "codesign",
+          "--verify",
+          "--deep",
+          "--strict"
+        ],
+        "app": "Sattari Modular FX",
+        "output": ""
+      },
+      {
+        "check": [
+          "xcrun",
+          "stapler",
+          "validate"
+        ],
+        "app": "Sattari Modular FX",
+        "output": "Processing: /Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/mounted/Standalone/Sattari Modular FX.app\nThe validate action worked!\n"
+      },
+      {
+        "check": [
+          "spctl",
+          "--assess",
+          "--type",
+          "execute",
+          "--verbose=2"
+        ],
+        "app": "Sattari Modular FX",
+        "output": "/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/mounted/Standalone/Sattari Modular FX.app: accepted\nsource=Notarized Developer ID\n"
+      },
+      {
+        "check": [
+          "codesign",
+          "--verify",
+          "--deep",
+          "--strict"
+        ],
+        "app": "Sattari Modular Instrument",
+        "output": ""
+      },
+      {
+        "check": [
+          "xcrun",
+          "stapler",
+          "validate"
+        ],
+        "app": "Sattari Modular Instrument",
+        "output": "Processing: /Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/mounted/Standalone/Sattari Modular Instrument.app\nThe validate action worked!\n"
+      },
+      {
+        "check": [
+          "spctl",
+          "--assess",
+          "--type",
+          "execute",
+          "--verbose=2"
+        ],
+        "app": "Sattari Modular Instrument",
+        "output": "/Users/lillypad/Projects/remaining-app-releases-20261011/modular-signing/mounted/Standalone/Sattari Modular Instrument.app: accepted\nsource=Notarized Developer ID\n"
+      }
+    ]
+  },
+  "signed_bundle_validation": [
+    {
+      "kind": "VST3 pluginval strictness 10",
+      "product": "fx",
+      "architecture": "arm64",
+      "log_sha256": "2a577966f818b30ce0e65e0c5d64be0fdec137e5ab875e0709fa0f22536e3608"
+    },
+    {
+      "kind": "AU validation",
+      "product": "fx",
+      "architecture": "arm64",
+      "log_sha256": "8c45f94b4627d3b92281a0aaec395f0619b70630f59cb6ba92fa2f979f3b2175"
+    },
+    {
+      "kind": "VST3 pluginval strictness 10",
+      "product": "fx",
+      "architecture": "x86_64",
+      "log_sha256": "e06e34c7d692ec7007aeca8de9369f6fa1b848f21f5c690ea99983dd09b7a528"
+    },
+    {
+      "kind": "AU validation",
+      "product": "fx",
+      "architecture": "x86_64",
+      "log_sha256": "4fac4648f8fa5103dcc4f3cb6bf157f3d555ef457f2a61e1e2fafab3851760c5"
+    },
+    {
+      "kind": "VST3 pluginval strictness 10",
+      "product": "instrument",
+      "architecture": "arm64",
+      "log_sha256": "e3c8aae4b55c398f1a1b9b1a088e6f30eb292bcdfb9001bb438750fbf10310b0"
+    },
+    {
+      "kind": "AU validation",
+      "product": "instrument",
+      "architecture": "arm64",
+      "log_sha256": "05766043ff5928b541fe56e8e76fe3dd863af83adfc79348d01f993d8a19e0b3"
+    },
+    {
+      "kind": "VST3 pluginval strictness 10",
+      "product": "instrument",
+      "architecture": "x86_64",
+      "log_sha256": "5ca311253130fa24935e9e287917bbdc754d580a8b40f62d6c3b01f109121620"
+    },
+    {
+      "kind": "AU validation",
+      "product": "instrument",
+      "architecture": "x86_64",
+      "log_sha256": "596fafe2b24f385abde7dfff45a719f6336aa0ab4fb4978aeb963226bc1d3f73"
+    }
+  ],
+  "AU_registration": "Both architectures passed for both products; temporary components removed and existing components restored by qualifier finally block",
+  "source_snapshot": {
+    "revision": "ce21d67e4156b88e762064f9f35094974023974e",
+    "juce_revision": "29396c22c93392d6738e021b83196283d6e4d850",
+    "archive_sha256": "42d2a67c9394a905558a350ba8d5bd0f090957f4449d81a85e9109d41807ba7c",
+    "scope": "Modular source/build inputs and pinned JUCE source; complete redistribution review remains open",
+    "build_configuration": {
+      "source": "plugins/modular",
+      "Release": true,
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "ONNX": false,
+      "COPY_PLUGINS_AFTER_BUILD": false
+    },
+    "file_count": 4658,
+    "source_inputs_sha256": "aede3c2a8748da2dc3c5a1dd17730df97ec724f0f8350d1102fe510b879975b6"
+  }
+}

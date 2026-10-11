@@ -1,4 +1,5 @@
 #include "SongKeyProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "SongKeyEditor.h"
 #include <sattari_audio_core/SattariArrangementClip.h>
 #include <chrono>
@@ -15,12 +16,12 @@ juce::StringArray SattariSongKeyAudioProcessor::scaleChoices() { return { "Major
 APVTS::ParameterLayout SattariSongKeyAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "publish", 1 }, "Publish to Suite", true));
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "lockSession", 1 }, "Lock Session", false));
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "dynamicFollow", 1 }, "Dynamic Key Follow", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "publish", 1 }, "Publish to Suite", true));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "lockSession", 1 }, "Lock Session", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "dynamicFollow", 1 }, "Dynamic Key Follow", false));
     p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "dynamicInterval", 1 }, "Dynamic Stability Horizon",
         juce::NormalisableRange<float> (1.0f, 5.0f, 1.0f), 5.0f));
-    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "manual",  1 }, "Manual Override", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   (juce::ParameterID { "manual",  1 }, "Manual Override", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualRoot",  1 }, "Manual Root",  rootChoices(),  0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualScale", 1 }, "Manual Scale", scaleChoices(), 0));
     p.push_back (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "songContextSeconds", 1 }, "Live Song Context",

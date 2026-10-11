@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include <sattari_audio_core/SattariArrangementClip.h>
 #include "PluginEditor.h"
 #include <SattariAutoPitchModelData.h>
@@ -121,6 +122,34 @@ juce::var readObjectVar (const juce::var& object, const juce::Identifier& key)
             return dynamicObject->getProperty (key);
 
     return {};
+}
+
+//  Session sections that live beside the parameters in the saved state. apvts.copyState() hands
+//  back whatever the last restore put into the parameter tree, so each save used to append a
+//  fresh copy after the old one (4210 -> 4262 -> 4314 bytes per cycle), and restore read the
+//  FIRST, i.e. oldest, copy: pitch notes deleted since the last reload came back. Keep exactly
+//  one copy of each: the newest.
+constexpr const char* kSessionSections[] = { "KeyMap", "PitchEdits", "MidiLearn" };
+
+void keepOnlyNewestSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+    {
+        int newest = -1;
+        for (int i = 0; i < state.getNumChildren(); ++i)
+            if (state.getChild (i).hasType (name)) newest = i;
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (i != newest && state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+    }
+}
+
+void removeSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
 }
 
 double midiFromHz (double frequencyHz, double referenceHz = 440.0)
@@ -387,8 +416,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Default to Natural. Natural, Classic and Modern Rap are all clean tuning
     // laws; only explicitly effect-named modes (Robot / Big Harmony) colour audio.
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 0));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("enableCorrection", "Enable Correction", true));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("autoKey", "AutoKey Follow", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("enableCorrection", "Enable Correction", true));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("autoKey", "AutoKey Follow", false));
     // Follow Song Key defaults OFF so the header Key & Scale menu is authoritative
     // out of the box: a user dropping Auto Pitch on a vocal picks a key and it
     // tunes to it immediately. Turning this ON is the explicit opt-in for the
@@ -396,13 +425,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // it's on, the editor disables + annotates the menu so the override is never
     // silent. Defaulting ON is what made "the menu not work" — the bus quietly
     // overrode the dropdowns with no visual feedback.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSongKey", "Follow Song Key", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followSongKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Amount",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("speed", "Speed",
         juce::NormalisableRange<float> (0.05f, 1.0f, 0.01f), 0.85f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("doNoHarm", "Do No Harm", true));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("formantPreserve", "Formant Preserve", true));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("doNoHarm", "Do No Harm", true));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("formantPreserve", "Formant Preserve", true));
     // "Sound Source" replaces the vocals-only "Vocal Range" param. Adding
     // explicit Instrument bands so the same correction engine can target a
     // bass / lead / lead-high source (electric bass, monophonic synth lead,
@@ -421,14 +450,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // an alias for Live Engine's low-latency path; kept as its own control because
     // the editor exposes both. See processBlock's engine select + prepareToPlay's
     // reported-latency block.)
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "lowLatency", "Legacy Low Latency (inactive)", false,
         juce::AudioParameterBoolAttributes().withAutomatable (false)));
 
     // Live Engine (PSOLA): swap the Rubber Band phase vocoder for a streaming
     // TD-PSOLA shifter for near-zero-latency monitoring while tracking. Rubber
     // Band stays the default for the higher-fidelity printed sound.
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "liveEngine", "Legacy Live Engine (inactive)", false,
         juce::AudioParameterBoolAttributes().withAutomatable (false)));
 
@@ -441,12 +470,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     //
     // Default OFF: the print path is the qualification candidate and must not move
     // because a live path was added beside it.
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "liveMode", "Live Mode (low latency)", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "liveProfile", "Live Profile",
         juce::StringArray { "Ultra (C3+)", "Extended Range" }, 0));
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "extremeLive", "Extreme Live (2 ms)", true));
 
     //  Follow Song Map: the correction target tracks the analysed song's scale
@@ -454,7 +483,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     //  chorus in C harmonic minor are BOTH legal note sets in their own places.
     //  Default OFF — it changes what notes are legal, which is exactly the kind
     //  of thing that must be opted into rather than discovered.
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "followSongMap", "Follow Song Map", false));
 
     //  --- HARMONY ---------------------------------------------------------------
@@ -469,7 +498,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "harmonyLead", "Lead Level",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> (
+    params.push_back (std::make_unique<sattari::parameters::Bool> (
         "harmonyVoiceOnly", "Harmony Voice Only", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "harmonyGlide", "Harmony Glide",
@@ -504,7 +533,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     for (int v = 1; v <= 4; ++v)
     {
         const auto id = juce::String ("h") + juce::String (v);
-        params.push_back (std::make_unique<juce::AudioParameterBool> (
+        params.push_back (std::make_unique<sattari::parameters::Bool> (
             id + "Enable", "Harmony " + juce::String (v) + " Enable", false));
         params.push_back (std::make_unique<juce::AudioParameterChoice> (
             id + "Role", "Harmony " + juce::String (v) + " Role",
@@ -519,7 +548,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             -7, 7, v == 1 ? 2 : v == 2 ? -2 : v == 3 ? 4 : -4));
         params.push_back (std::make_unique<juce::AudioParameterInt> (
             id + "Octave", "Harmony " + juce::String (v) + " Octave", -1, 1, 0));
-        params.push_back (std::make_unique<juce::AudioParameterBool> (
+        params.push_back (std::make_unique<sattari::parameters::Bool> (
             id + "Solo", "Harmony " + juce::String (v) + " Solo", false));
         params.push_back (std::make_unique<juce::AudioParameterFloat> (
             id + "Level", "Harmony " + juce::String (v) + " Level",
@@ -543,14 +572,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
     // CNN costs roughly a quarter of one performance core at an 83 Hz cadence on
     // the reference Mac, so a new session stays on efficient YIN until requested.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("neuralPitch", "Neural Pitch", false));
 
     // Transpose to Key (whole-mix): instead of per-note correction, shift the ENTIRE
     // signal by a fixed number of semitones via Rubber Band (formant-aware) so a whole
     // beat / instrumental / sample lands in a target key. xposeSemis is the shift; the
     // editor's "Match Key" button sets it from a completed original-source scan
     // to the suite/manual target. This moves everything, NOT individual notes.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("xposeMode", "Transpose to Key", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("xposeMode", "Transpose to Key", false));
     params.push_back (std::make_unique<juce::AudioParameterInt>  ("xposeSemis", "Transpose", -12, 12, 0));
 
     // Preserve Vibrato: 0 = full snap (kills vibrato under hard tune), 1 = keep
@@ -579,14 +608,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // plus an opt-in path that consumes the referenceHz published by Sattari Key.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("referenceDetune", "Reference Detune",
         juce::NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followReference", "Follow Song Reference", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followReference", "Follow Song Reference", false));
 
     // When armed, held MIDI notes override scale snapping and become exact note
     // targets. This remains independent of the existing MIDI Learn layer.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("midiTarget", "Target Notes from MIDI", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("capturePitchEdits", "Capture Pitch Edits", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("usePitchEdits", "Use Pitch Edits", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("graphTimeCorrection", "Graph Time Correction", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("midiTarget", "Target Notes from MIDI", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("capturePitchEdits", "Capture Pitch Edits", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("usePitchEdits", "Use Pitch Edits", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("graphTimeCorrection", "Graph Time Correction", false));
 
     // --- Antares-class behavioural controls ----------------------------------
     // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
@@ -597,7 +626,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // expressive gating is bypassed. This is the deliberate robotic snap, not a
     // transparent correction. (We don't ship Antares' actual A5 resampler; this
     // reproduces its behavioural signature: zero-transition hard pull.)
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("classicMode", "Classic Mode", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("classicMode", "Classic Mode", false));
 
     // Flex-Tune: correction only engages as the voice clearly heads toward a
     // target. Inside a "flex zone" around each note centre, expressive pitch
@@ -622,7 +651,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // 1.0 = natural. <1 = shorter/brighter, >1 = longer/darker.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("throat", "Throat",
         juce::NormalisableRange<float> (0.5f, 2.0f, 0.01f), 1.0f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("useKeyMap", "Use Key Map", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize", "Humanize",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     // 12-bit mask of enabled pitch classes (bit 0 = C, bit 11 = B). Default
@@ -637,7 +666,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // 4 notes, harmonic-rich, opposing detunes. Known limit: it does NOT split partials
     // that two notes SHARE (an exact unison/octave collides — the octave case scores
     // ~46%); true source separation (Melodyne-class) is a future build.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("polyphonic", "Polyphonic", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("polyphonic", "Polyphonic", false));
     // Poly Harmony: in Polyphonic mode, add an in-key harmony voice a diatonic third above
     // every detected note, phase-coherent via a dedicated accumulator so it never perturbs
     // the corrected voice. 0 = off (the harmony pass is skipped entirely). Best-effort on
@@ -695,6 +724,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const juce::ScopedLock l (pitchEditLock);
         pitchEdits.reserve (4096);
     }
+    // Covers the engine latency plus the 500 ms graph-time look-ahead.
+    bypassDelay.setSize (juce::jmax (2, getTotalNumOutputChannels()),
+                         (int) std::ceil (currentSampleRate * 0.5) + 16384);
+    bypassDelay.clear();
+    bypassDelayWrite = 0;
     resetPitchState (preparedBlockSize);
     {
         const auto offsetText = juce::SystemStats::getEnvironmentVariable (
@@ -943,6 +977,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         else
             ssStretch.configure (numCh, 4096, 1024);
 
+        ssConfigured = true;
         ssStretch.reset();
         ssOutput.setSize (numCh, preparedBlockSize);
         ssInputPtrs.resize  ((size_t) numCh);
@@ -1360,7 +1395,8 @@ void SattariAutoPitchAudioProcessor::releaseResources()
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
-    ssStretch.reset();
+    if (ssConfigured)
+        ssStretch.reset();
     ssOutput.setSize (0, 0);
     ssInputPtrs.clear();
     ssOutputPtrs.clear();
@@ -1409,6 +1445,10 @@ void SattariAutoPitchAudioProcessor::reset()
 
 void SattariAutoPitchAudioProcessor::resetPitchState (int)
 {
+    humanizeRng.setSeed (humanizeSeed);
+    humanizeTargetCents = 0.0;
+    humanizeSmoothedCents = 0.0;
+    humanizeBlocksUntilNewTarget = 0;
     pitchFrameBuffer.assign ((size_t) pitchFrameSize, 0.0f);
     pitchWriteIndex = 0;
     pitchSamplesUntilAnalysis = pitchHopSize;
@@ -4442,6 +4482,48 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
     return std::pow (2.0, limitedCents / 1200.0);
 }
 
+void SattariAutoPitchAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    // JUCE's default bypass passes audio through undelayed while the host is
+    // still compensating for the reported latency, so a bypassed vocal played
+    // ~60 ms early. Delay the dry signal by the same amount instead.
+    auto main = getBusBuffer (buffer, false, 0);
+    writeBypassDelay (main, true);
+}
+
+void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed)
+{
+    // The ring is written on every block, processed or bypassed. It used to be
+    // written only while bypassed, so engaging bypass after a stretch of normal
+    // processing replayed ~one latency of audio left over from the PREVIOUS bypass.
+    const int size = bypassDelay.getNumSamples();
+    const int n = main.getNumSamples();
+    if (size <= 0 || n <= 0)
+        return;
+    const int latency = getLatencySamples();
+    const bool canDelay = latency > 0 && latency < size;
+
+    for (int ch = 0; ch < bypassDelay.getNumChannels(); ++ch)
+    {
+        auto* line = bypassDelay.getWritePointer (ch);
+        if (ch >= main.getNumChannels())
+        {
+            for (int i = 0; i < n; ++i)
+                line[(bypassDelayWrite + i) % size] = 0.0f;
+            continue;
+        }
+        auto* data = main.getWritePointer (ch);
+        for (int i = 0; i < n; ++i)
+        {
+            const int w = (bypassDelayWrite + i) % size;
+            line[w] = data[i];
+            if (replaceWithDelayed && canDelay)
+                data[i] = line[(w - latency + size) % size];
+        }
+    }
+    bypassDelayWrite = (bypassDelayWrite + n) % size;
+}
+
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -4512,6 +4594,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Capture the untouched insert input before analysis or any DSP mutates it.
     // The reference ring runs continuously so Correction Off can become a true,
     // sample-identical bypass without changing the plugin's declared latency.
+    // The host-bypass ring is fed here too, so engaging bypass is seamless.
+    writeBypassDelay (mainBuffer, false);
     renderDelayedDryReference (mainBuffer);
     // Keep an untouched vocal source for harmony. Pitching an already-corrected
     // lead again compounds formant/phase processing; every generated singer is
@@ -6099,7 +6183,9 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
 
 int SattariAutoPitchAudioProcessor::rootToChoiceIndex (const juce::String& root)
 {
-    const auto normalized = root.trim().toUpperCase().replace ("♯", "#").replace ("♭", "B");
+    const auto normalized = root.trim().toUpperCase()
+        .replace (juce::String::fromUTF8 ("\xe2\x99\xaf"), "#")
+        .replace (juce::String::fromUTF8 ("\xe2\x99\xad"), "B");
     const juce::String flatNormalized = normalized == "DB" ? "C#"
         : normalized == "EB" ? "D#"
         : normalized == "GB" ? "F#"
@@ -6211,10 +6297,11 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 {
     auto state = apvts.copyState();
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+    state.setProperty ("humanizeSeed", humanizeSeed, nullptr);
     // Restored APVTS state still contains its old extension trees. Replace
     // those snapshots instead of appending duplicates: readers select the
     // first child and would otherwise resurrect stale notes/key maps forever.
-    for (const auto* name : { "KeyMap", "PitchEdits" })
+    for (const auto* name : kSessionSections)
         for (auto previous = state.getChildWithName (name); previous.isValid();
              previous = state.getChildWithName (name))
             state.removeChild (previous, nullptr);
@@ -6307,6 +6394,7 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        keepOnlyNewestSessionSections (restored);
         // APVTS retains the current value for absent parameter nodes. An old
         // project loaded into a reused instance must not inherit new formant
         // settings from the project/preset that happened to be open before it.
@@ -6419,6 +6507,9 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
 
         midiLearn.loadFrom (restored);
 
+        if (restored.hasProperty ("humanizeSeed"))
+            humanizeSeed = (juce::int64) restored.getProperty ("humanizeSeed");
+        removeSessionSections (restored);
         apvts.replaceState (restored);
         if (! hasExtendedScale)
         {

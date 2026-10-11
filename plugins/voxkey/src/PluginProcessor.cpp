@@ -2,6 +2,11 @@
 #include "PluginEditor.h"
 #include <chrono>
 
+namespace
+{
+constexpr int kRealtimeScratchReserve = 8192;
+}
+
 SattariVoxKeyAudioProcessor::SattariVoxKeyAudioProcessor()
     : AudioProcessor (BusesProperties()
         .withInput ("Voice In", juce::AudioChannelSet::stereo(), true)
@@ -91,9 +96,10 @@ void SattariVoxKeyAudioProcessor::crepeWorkerLoop()
 
 void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    pitchDetector.prepare (sampleRate, samplesPerBlock);
+    const int preparedBlockSize = juce::jmax (kRealtimeScratchReserve, juce::jmax (1, samplesPerBlock));
+    pitchDetector.prepare (sampleRate, preparedBlockSize);
     midiMapper.prepare (sampleRate);
-    monoScratch.setSize (1, juce::jmax (1, samplesPerBlock), false, false, true);
+    monoScratch.setSize (1, preparedBlockSize, false, false, true);
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
     publishDisplayState ({});
 
@@ -290,16 +296,14 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
     }
 
-    if (monoScratch.getNumSamples() < numSamples)
-        monoScratch.setSize (1, numSamples, false, false, true);
-
+    const int analysisSamples = juce::jmin (numSamples, monoScratch.getNumSamples());
     auto* mono = monoScratch.getWritePointer (0);
-    std::fill (mono, mono + numSamples, 0.0f);
+    std::fill (mono, mono + analysisSamples, 0.0f);
     const int channelsToRead = juce::jmax (1, numInputChannels);
     for (int ch = 0; ch < channelsToRead; ++ch)
     {
         const float* src = buffer.getReadPointer (juce::jmin (ch, buffer.getNumChannels() - 1));
-        for (int i = 0; i < numSamples; ++i)
+        for (int i = 0; i < analysisSamples; ++i)
             mono[i] += src[i] / (float) channelsToRead;
     }
 
@@ -309,7 +313,7 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         // Paraphonic alpha path. Bypass YIN + midiMapper; emit notes directly.
         // Still update the UI display from the first detected note so the orb
         // and detected/output labels stay alive.
-        paraProcessBlock (mono, numSamples, getSampleRate(), midi);
+        paraProcessBlock (mono, analysisSamples, getSampleRate(), midi);
         VoxKeyVoiceMidiMapper::State display;
         display.voiced = paraActiveNotes[0] >= 0;
         display.detectedNote = paraActiveNotes[0];
@@ -325,7 +329,7 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
 
     auto frame = pitchDetector.analyseBlock (mono,
-                                             numSamples,
+                                             analysisSamples,
                                              *apvts.getRawParameterValue ("sensitivity"),
                                              *apvts.getRawParameterValue ("confidence"),
                                              *apvts.getRawParameterValue ("smoothness"));
@@ -335,7 +339,7 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     // This is the big voice->MIDI accuracy win on breathy/noisy vocals.
     if (crepeModelPresent && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
     {
-        crepe.pushBlock (mono, numSamples);
+        crepe.pushBlock (mono, analysisSamples);
         const float chz = crepeResultHz.load (std::memory_order_relaxed);
         if (crepeResultVoiced.load (std::memory_order_relaxed) && chz > 0.0f)
         {

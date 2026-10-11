@@ -30,17 +30,18 @@ while IFS= read -r relative_path; do
   [[ -n "$relative_path" ]] || continue
   source_path="$(resolve_source "$relative_path")"
   validate_bundle "$source_path"
+  python3 "$repo_root/scripts/check_hub_bundle_version.py" "$manifest" "$relative_path" "$source_path"
   if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
     "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$source_path"
   fi
   copied=$((copied + 1))
 done < <(python3 - <<'PY' "$manifest"
-import json, sys
+import json, sys, os
 from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 seen = set()
 for product in manifest["products"]:
-    if product.get("shippingProfile") != "alpha":
+    if product.get("shippingProfile") != "alpha" or (product.get("portfolioStatus", "active") not in ("active", "specialist") and os.environ.get("SATTARI_INCLUDE_LEGACY") != "1"):
         continue
     for bundle in product["bundles"]:
         path = bundle["relativeSourcePath"]
@@ -51,12 +52,12 @@ PY
 )
 
 expected="$(python3 - <<'PY' "$manifest"
-import json, sys
+import json, sys, os
 from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 print(len({bundle["relativeSourcePath"]
            for product in manifest["products"]
-           if product.get("shippingProfile") == "alpha"
+           if product.get("shippingProfile") == "alpha" and (product.get("portfolioStatus", "active") in ("active", "specialist") or os.environ.get("SATTARI_INCLUDE_LEGACY") == "1")
            for bundle in product["bundles"]}))
 PY
 )"

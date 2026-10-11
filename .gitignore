@@ -50,6 +50,7 @@ validation/renders/
 # Local Netlify folder
 .netlify
 third_party/onnxruntime-osx-universal2-*/
+third_party/onnxruntime-win-x64-*/
 
 # Python caches
 __pycache__/

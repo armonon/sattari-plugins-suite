@@ -2,8 +2,9 @@
 # =============================================================================
 #  Sattari Audio — Developer ID sign + notarize + staple the suite installer
 # -----------------------------------------------------------------------------
-#  Turns the ad-hoc-signed local .pkg into a Gatekeeper-clean, distributable
-#  installer. Run `scripts/sign_preflight.sh` first — it checks certs/profile and
+#  Compatibility workflow for the older installer profile, not the consolidated
+#  16-product launch qualifier. Notarization does not approve public release.
+#  Run `scripts/sign_preflight.sh` first — it checks certs/profile and
 #  prints exactly what to fix. This script NEVER sees your Apple password: it uses
 #  a notarytool *keychain profile* that you create once, separately:
 #
@@ -17,7 +18,7 @@
 #     export SATTARI_NOTARY_PROFILE="sattari-notary"
 #     scripts/notarize_suite.sh
 #
-#  Order matters: every code bundle is deep-signed with the Application identity
+#  Order matters: every code bundle is signed inside-out with the Application identity
 #  with a secure timestamp + hardened runtime BEFORE the .pkg is rebuilt, then
 #  the .pkg is productsigned with the Installer identity, submitted, and stapled.
 # =============================================================================
@@ -39,23 +40,28 @@ fi
 ARTROOT="${SATTARI_ARTEFACT_ROOT:-build/local/plugins}"
 PKG_IN="${SATTARI_PKG:-build/installer/Sattari-Audio-Suite.pkg}"
 PKG_SIGNED="${PKG_IN%.pkg}-signed.pkg"
-# Hardened-runtime entitlements are required for our ONNX plugins (they embed a
-# self-contained dylib, which library validation would otherwise reject).
 ENTITLEMENTS="${SATTARI_ENTITLEMENTS:-packaging/sattari-plugin.entitlements}"
+STANDALONE_ENTITLEMENTS="${SATTARI_STANDALONE_ENTITLEMENTS:-packaging/sattari-standalone.entitlements}"
+MODULAR_ENTITLEMENTS="${SATTARI_MODULAR_ENTITLEMENTS:-packaging/sattari-modular-standalone.entitlements}"
 [ -f "$ENTITLEMENTS" ] || { echo "ERROR: entitlements not found at $ENTITLEMENTS"; exit 2; }
+[ -f "$STANDALONE_ENTITLEMENTS" ] || { echo "ERROR: standalone entitlements not found"; exit 2; }
+[ -f "$MODULAR_ENTITLEMENTS" ] || { echo "ERROR: Modular hosting entitlements not found"; exit 2; }
+echo "Compatibility installer only. Use docs/launch-readiness.md for the consolidated launch."
 
 echo "== 1) Developer ID sign every code bundle (hardened runtime + timestamp) =="
 sign_one() {
   local bundle="$1"
-  local args=(--force --options runtime --timestamp --sign "$SATTARI_DEV_APP_ID"
-              --entitlements "$ENTITLEMENTS")
+  local args=(--force --options runtime --timestamp --sign "$SATTARI_DEV_APP_ID")
+  local permissions="$ENTITLEMENTS"
+  [[ "$bundle" == *.app ]] && permissions="$STANDALONE_ENTITLEMENTS"
+  [[ "$bundle" == */Sattari\ Modular*.app ]] && permissions="$MODULAR_ENTITLEMENTS"
   # Sign inside-out: embedded frameworks / dylibs (e.g. libonnxruntime) FIRST,
   # each with the same identity + timestamp + runtime, then the bundle. --deep is
   # unreliable for notarization, so we sign nested Mach-O explicitly.
   while IFS= read -r nested; do
     codesign "${args[@]}" "$nested"
   done < <(find "$bundle/Contents/Frameworks" -type f \( -name '*.dylib' -o -name '*.framework' \) 2>/dev/null)
-  codesign "${args[@]}" "$bundle"
+  codesign "${args[@]}" --entitlements "$permissions" "$bundle"
   codesign --verify --deep --strict --verbose=2 "$bundle"
   echo "   signed: $bundle"
 }
@@ -81,7 +87,8 @@ xcrun notarytool submit "$PKG_SIGNED" --keychain-profile "$SATTARI_NOTARY_PROFIL
 echo "== 5) Staple the notarization ticket =="
 xcrun stapler staple "$PKG_SIGNED"
 xcrun stapler validate "$PKG_SIGNED"
-spctl --assess --type install --verbose=2 "$PKG_SIGNED" || true
+spctl --assess --type install --verbose=2 "$PKG_SIGNED"
 
 echo "== DONE =="
-echo "Distributable installer: $PKG_SIGNED"
+echo "Notarized compatibility candidate: $PKG_SIGNED"
+echo "Public distribution still requires the licensing and launch acceptance gates."

@@ -83,7 +83,7 @@ public:
             R (-12.0f, 12.0f, 0.1f), 0.0f));                 // dB
 
         // Key control (matches the shared KeyButton convention across the suite).
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "followKey", 1), "Follow Song Key", false));
         out.push_back (std::make_unique<juce::AudioParameterChoice> (
             juce::ParameterID (prefix + "root", 1), "Root", rootChoices(), 0));

@@ -1,0 +1,64 @@
+{
+  "revision": "bccd471f2bba4d86a8453aecad7460353647cdc9",
+  "packaging_patch_sha256": "7f65116fa9c458a3c0da502cc1429671b85dc7c1d4681ad8680249680d1b1377",
+  "hardware": "arm64",
+  "build": "universal arm64;x86_64 Release",
+  "contracts": {
+    "arm64": 4,
+    "x86_64_Rosetta": 4,
+    "note": "FX ran earlier explicitly on each architecture; CTest and remaining explicit Intel runs cover the other three contracts."
+  },
+  "universal_bundles": 6,
+  "signatures": "ad-hoc verification only",
+  "artifacts": {
+    "build/account-modular/SattariModularFX_artefacts/Release/VST3/Sattari Modular FX.vst3/Contents/MacOS/Sattari Modular FX": "73c9cddd8e323a506ba297a1a1f9472f61c2cd8bddaa0a214e7fddb536bf6ea1",
+    "build/account-modular/SattariModularFX_artefacts/Release/AU/Sattari Modular FX.component/Contents/MacOS/Sattari Modular FX": "722f2ae62cae86d9a25202f9e7576d53ffb8b5680997adc778d6207e50c7d184",
+    "build/account-modular/SattariModularFX_artefacts/Release/Standalone/Sattari Modular FX.app/Contents/MacOS/Sattari Modular FX": "5b8185a501b822e3efc6e576e6796bcae1713783ea3ab7f3e72136334b8ce0d4",
+    "build/account-modular/SattariModularInstrument_artefacts/Release/VST3/Sattari Modular Instrument.vst3/Contents/MacOS/Sattari Modular Instrument": "42ae4818ca7e5e289ea96b325c2699e7b76f1ef652245befe48d15cee6bd934b",
+    "build/account-modular/SattariModularInstrument_artefacts/Release/AU/Sattari Modular Instrument.component/Contents/MacOS/Sattari Modular Instrument": "4c68363c220f20d9d85ee71ae0fa59600d78e69c1e008d76d377b4ea96b24022",
+    "build/account-modular/SattariModularInstrument_artefacts/Release/Standalone/Sattari Modular Instrument.app/Contents/MacOS/Sattari Modular Instrument": "935ef794e9cf8db349422bed71438eb3c38fca14bd173696d330c92615d9c49c"
+  },
+  "public_native_release": false,
+  "remaining": [
+    "Windows/native platform qualification",
+    "AU registration validation",
+    "supported DAW and listening acceptance",
+    "distribution licensing, signing and notarization"
+  ],
+  "qualified_source_commit": "7947db22bf84348f3e550781ead3fc4dfa641733",
+  "strict_vst3_validation": {
+    "FX": {
+      "kind": "FX",
+      "sha256": "73c9cddd8e323a506ba297a1a1f9472f61c2cd8bddaa0a214e7fddb536bf6ea1",
+      "results": [
+        {
+          "architecture": "arm64",
+          "strictness": 10,
+          "passed": true
+        },
+        {
+          "architecture": "x86_64",
+          "strictness": 10,
+          "passed": true
+        }
+      ]
+    },
+    "Instrument": {
+      "kind": "Instrument",
+      "sha256": "42ae4818ca7e5e289ea96b325c2699e7b76f1ef652245befe48d15cee6bd934b",
+      "results": [
+        {
+          "architecture": "arm64",
+          "strictness": 10,
+          "passed": true
+        },
+        {
+          "architecture": "x86_64",
+          "strictness": 10,
+          "passed": true
+        }
+      ]
+    }
+  },
+  "contract_source_note": "Processor and hosting contracts ran at the original revision. The only subsequent production source edit is the post-metadata VST3 signing fix; both VST3 targets were relinked and qualified afterward."
+}

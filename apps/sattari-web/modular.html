@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sattari Modular | Sattari Audio</title>
-  <meta name="description" content="Build your own Sattari studio rack. Nine effects, two instrument sources, eight macros, and one connected chain. Explore the Modular 0.1.1 release candidate." />
+  <meta name="description" content="Sattari Modular brings Vocal, Create and instrument collections into one analog-inspired rack: 22 native effects, four source layers and development VST3 hosting." />
   <link rel="canonical" href="https://sattari-audio-studio.armonon.chatgpt.site/modular.html" />
   <link rel="stylesheet" href="assets/modular/modular.css" />
 </head>
@@ -19,10 +19,10 @@
   <main id="main">
     <section class="hero" aria-labelledby="product-title">
       <div class="hero-copy wrap">
-        <p class="eyebrow">FX + Instrument / 0.1.1 release candidate</p>
+        <p class="eyebrow">FX + Instrument / 0.2.0 development build</p>
         <h1 id="product-title">Sattari Modular</h1>
         <p class="hero-lede">Your sound. Your chain. One studio rack.</p>
-        <p class="hero-detail">Sattari effects and instruments, brought together in an analog-inspired rack.</p>
+        <p class="hero-detail">Vocal, Create and instrument collections, brought together with your installed VST3s in an analog-inspired rack.</p>
         <div class="hero-actions"><a class="button" href="#rack">Explore the rack</a><a class="text-link" href="#listen">Hear Modular</a></div>
       </div>
       <figure class="hero-visual">
@@ -32,30 +32,35 @@
     </section>
     <section class="facts" aria-label="Rack at a glance">
       <div class="wrap facts-grid">
-        <p><strong>9</strong><span>Sattari effects</span></p>
-        <p><strong>2</strong><span>Instrument layers</span></p>
+        <p><strong>22</strong><span>Native effects</span></p>
+        <p><strong>4</strong><span>Instrument layers</span></p>
         <p><strong>8</strong><span>Assignable macros</span></p>
         <p><strong>3</strong><span>Recallable scenes</span></p>
       </div>
     </section>
     <section class="section wrap" id="rack" aria-labelledby="rack-title">
-      <div class="section-heading"><p class="eyebrow">One rack, two starting points</p><h2 id="rack-title">Process a track. Or play one.</h2><p>Shape incoming audio with Modular FX, or start with two MIDI-driven source layers in Modular Instrument. Both feed the same effects rack.</p></div>
+      <div class="section-heading"><p class="eyebrow">One platform, two starting points</p><h2 id="rack-title">Process a track. Or play one.</h2><p>Shape incoming audio with Modular FX, or combine up to four MIDI-driven source layers in Modular Instrument. Both share the same effects, collections and presets.</p></div>
       <div class="rack-tabs" role="tablist" aria-label="Modular editions" hidden>
         <button id="fx-tab" role="tab" aria-selected="true" aria-controls="fx-panel" type="button">Modular FX</button>
         <button id="instrument-tab" role="tab" aria-selected="false" aria-controls="instrument-panel" tabindex="-1" type="button">Modular Instrument</button>
       </div>
       <div id="fx-panel" class="rack-panel">
-        <div class="rack-caption"><div><h3>Build your signal chain.</h3><p>Nine effects. Six serial slots. A two-slot parallel return.</p></div><a href="assets/modular/modular-fx.png" target="_blank" rel="noopener">View full-size FX image</a></div>
+        <div class="rack-caption"><div><h3>Build your signal chain.</h3><p>Eight serial effects, or six effects with a two-slot parallel return.</p></div><a href="assets/modular/modular-fx.png" target="_blank" rel="noopener">View full-size FX image</a></div>
         <img class="rack-image" src="assets/modular/modular-fx.png" width="1440" height="1000" alt="Full Modular FX rack showing independent effect slots, macro controls and output meters." loading="lazy" />
       </div>
       <div id="instrument-panel" class="rack-panel">
-        <div class="rack-caption"><div><h3>Make the rack an instrument.</h3><p>Layer Granulator and Rhythm Genie, then shape them through your chain.</p></div><a href="assets/modular/modular-instrument.png" target="_blank" rel="noopener">View full-size Instrument image</a></div>
-        <img class="rack-image" src="assets/modular/modular-instrument.png" width="1440" height="1000" alt="Modular Instrument with two source layers, the shared effects rack, macro controls and an onscreen MIDI keyboard." loading="lazy" />
+        <div class="rack-caption"><div><h3>Make the rack an instrument.</h3><p>Layer Granulator, Chop, Rhythm Genie or installed VST3 instruments, with independent level, pan and key ranges.</p></div><a href="assets/modular/modular-instrument.png" target="_blank" rel="noopener">View full-size Instrument image</a></div>
+        <img class="rack-image" src="assets/modular/modular-instrument.png" width="1120" height="820" alt="Modular Instrument with four source layers, macro controls and an onscreen MIDI keyboard." loading="lazy" />
       </div>
       <div class="feature-columns">
         <article><span class="feature-index">01 / Chain</span><h3>Find your order.</h3><p>Load, duplicate, bypass and reorder integrated Sattari effects. Each instance keeps its own controls and processing history.</p></article>
         <article><span class="feature-index">02 / Perform</span><h3>Make it hands-on.</h3><p>Map two targets to each of eight macros, with adjustable ranges. Compare A/B settings and recall three rack scenes.</p></article>
         <article><span class="feature-index">03 / Recall</span><h3>Keep the whole idea.</h3><p>Save your chain as a preset or with your DAW session. Imported source audio travels inside the saved state.</p></article>
+      </div>
+      <div class="feature-columns">
+        <article><span class="feature-index">Vocal</span><h3>Clean leads. Character layers.</h3><p>Clean, Gate, De-Ess, EQ, Comp, Heat, Double, Face, Glass Choir and Space. Import supported Vocal preset files into the FX rack.</p></article>
+        <article><span class="feature-index">Create</span><h3>Movement and texture.</h3><p>Echo, Heat, Pulse, Riser, Shimmer, Space, Warble, Warp, Vocoder and 808. Import supported Create preset files into the FX rack.</p></article>
+        <article><span class="feature-index">Instruments + Mix</span><h3>Play and finish.</h3><p>Three native source engines and four layers, with a focused Mix collection of cleanup, dynamics, stereo and transient effects.</p></article>
       </div>
     </section>
     <section class="section module-section" aria-labelledby="modules-title">
@@ -71,26 +76,41 @@
           <article><span>07</span><div><h3>Pulse</h3><p>Rhythmic movement</p></div></article>
           <article><span>08</span><div><h3>De-Ess</h3><p>Sibilance control</p></div></article>
           <article><span>09</span><div><h3>Image</h3><p>Stereo shaping</p></div></article>
+          <article><span>10</span><div><h3>Double</h3><p>Vocal doubling</p></div></article>
+          <article><span>11</span><div><h3>Riser</h3><p>Transition shaping</p></div></article>
+          <article><span>12</span><div><h3>Shimmer</h3><p>Pitch-shifted ambience</p></div></article>
+          <article><span>13</span><div><h3>Warble</h3><p>Pitch movement</p></div></article>
+          <article><span>14</span><div><h3>Warp</h3><p>Signal transformation</p></div></article>
+          <article><span>15</span><div><h3>Vocoder</h3><p>MIDI-driven carrier</p></div></article>
+          <article><span>16</span><div><h3>808</h3><p>Bass reinforcement</p></div></article>
+          <article><span>17</span><div><h3>Gate</h3><p>Level-dependent gating</p></div></article>
+          <article><span>18</span><div><h3>Face</h3><p>Vocal character</p></div></article>
+          <article><span>19</span><div><h3>Glass Choir</h3><p>Layered vocal texture</p></div></article>
+          <article><span>20</span><div><h3>Transient</h3><p>Attack and sustain</p></div></article>
+          <article><span>21</span><div><h3>Multiband</h3><p>Band-based dynamics</p></div></article>
+          <article><span>22</span><div><h3>Peak</h3><p>Peak control</p></div></article>
         </div>
-        <div class="source-row"><div><span class="feature-index">Instrument sources</span><h3>Granulator + Rhythm Genie</h3></div><p>Play the built-in source, import WAV, AIFF or FLAC audio into Granulator, or trigger Rhythm Genie from MIDI. Two layers feed your shared effects chain.</p></div>
-        <p class="module-note">Modular uses built-in Sattari modules. It does not load third-party plugin files or include every product in the Sattari suite.</p>
+        <div class="source-row"><div><span class="feature-index">Instrument sources</span><h3>Granulator + Chop + Rhythm Genie</h3></div><p>Play a granular source, import WAV, AIFF or FLAC audio for granular playback and onset-based chopping, or trigger Rhythm Genie from MIDI. Use any combination across four layers.</p></div>
+        <div class="source-row"><div><span class="feature-index">External plugins</span><h3>Your installed VST3s</h3></div><p>Load an external instrument in a source layer or an external effect in the chain. Open its own editor and preserve its settings with the rack. Plugins run in-process; trusted mono/stereo plugins only, with no AU hosting or crash isolation.</p></div>
+        <p class="module-note">Detailed native controls, fourteen starting chains and collection filters are included. These are development features, not a claim of complete Stack editor parity or listening-approved presets.</p>
       </div>
     </section>
     <section class="section wrap listen-section" id="listen" aria-labelledby="listen-title">
-      <div class="section-heading"><p class="eyebrow">From the native engine</p><h2 id="listen-title">Hear Modular.</h2><p>A short instrument render from the 0.1.1 candidate.</p></div>
+      <div class="section-heading"><p class="eyebrow">From the native engine</p><h2 id="listen-title">Hear Modular.</h2><p>A short automated instrument render from the 0.2.0 development build.</p></div>
       <div class="audio-row"><div><h3>Modular Instrument</h3><p>5 seconds / stereo WAV / native engine render</p></div><audio controls preload="none" aria-label="Sattari Modular Instrument audio demo"><source src="assets/modular/modular-instrument-demo.wav" type="audio/wav" />Your browser does not support embedded audio.</audio></div>
       <p class="audio-fallback"><a href="assets/modular/modular-instrument-demo.wav">Open the audio demo</a></p>
     </section>
     <section class="section availability-section" id="availability" aria-labelledby="availability-title">
       <div class="wrap">
-        <div class="section-heading"><p class="eyebrow">Version 0.1.1</p><h2 id="availability-title">In the studio. Not released yet.</h2><p>Modular is a working native release candidate. Public downloads are not open.</p></div>
+        <div class="section-heading"><p class="eyebrow">Version 0.2.0</p><h2 id="availability-title">In the studio. Not released yet.</h2><p>The consolidated rack is a native development build. Earlier 0.1.1 package qualification does not certify this upgrade. Public downloads are not open.</p></div>
         <div class="platforms">
-          <article><div class="platform-heading"><h3>macOS</h3><span class="status">Release candidate</span></div><p>Universal Apple silicon + Intel builds</p><p class="formats">AU / VST3 / Standalone</p><p>FX and Instrument builds are Developer ID signed. Automated AU and VST3 validation has passed on Apple silicon and under Rosetta.</p><p class="platform-note">Apple notarization, physical Intel testing and broader DAW qualification remain pending.</p></article>
+          <article><div class="platform-heading"><h3>macOS</h3><span class="status">Development</span></div><p>Universal builds tested on Apple silicon and Intel through Rosetta</p><p class="formats">AU / VST3 / Standalone targets</p><p>Modular FX and Instrument build as universal AU, VST3 and standalone bundles. Processor, interface and hosting checks pass on both architectures; both VST3 editions pass strict pluginval validation.</p><p class="platform-note">AU registration, commercial signing, Apple notarization, supported DAW sessions and listening approval remain pending for this version.</p></article>
           <article><div class="platform-heading"><h3>Windows</h3><span class="status pending">In preparation</span></div><p>Windows x64 build pipeline prepared</p><p class="formats">Planned: VST3 / Standalone</p><p>A native Windows build has not yet been qualified. No Windows installer or download is available.</p><p class="platform-note">Availability will follow native testing and supported-host qualification.</p></article>
         </div>
         <div class="release-note"><h3>Before launch</h3><p>Clean-machine installation, extended DAW sessions, listening approval and distribution licensing review are still part of the release process. There is no announced release date.</p></div>
         <div class="questions">
-          <details><summary>Can I load my existing VSTs or Audio Units?</summary><p>Not in this version. Modular loads its integrated Sattari effects and sources, not external plugin binaries. It is a fixed serial rack with a post-rack parallel return, not an arbitrary patch-cable host.</p></details>
+          <details><summary>Can I load my existing VSTs or Audio Units?</summary><p>Development hosting supports installed VST3 instruments and effects. AU, VST2 and AAX hosting, multi-output routing, external sidechains and forwarding generated plugin MIDI are not implemented. External plugin binaries, licenses and sample libraries do not travel with presets.</p></details>
+          <details><summary>What happens to Vocal, Create and Stack sessions?</summary><p>Legacy plugins retain their identities so existing DAW sessions can continue to open. Supported Vocal and Create JSON preset files can be imported into Modular FX; active legacy LFO modulation is rejected, not silently discarded. This does not convert DAW sessions or automation. Stack presets and its deeper granular editors are not yet migrated.</p></details>
           <details><summary>What is saved with a preset?</summary><p>The rack, control settings, macro assignments and imported source samples are stored in Modular presets and host state. Each source layer supports up to 1,440,000 audio frames, or 30 seconds at 48 kHz. Scenes and A/B compare settings; they do not hold separate samples.</p></details>
           <details><summary>Does it mix automatically?</summary><p>No. Modular is a hands-on effects and instrument rack. Automatic mixing is not part of this version.</p></details>
         </div>

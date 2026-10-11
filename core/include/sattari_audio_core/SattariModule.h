@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <sattari_audio_core/SattariParameters.h>
 #include <algorithm>
 #include <atomic>
 #include <cstring>

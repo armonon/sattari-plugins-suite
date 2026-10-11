@@ -351,15 +351,15 @@ void CymaticPlate::step (const PlateDrive& d, float dt, Rng& rng) noexcept
     float* tgtOut = gTarget.data();
     float* lineOut = gLine.data();
 
-    auto locate = [] (float px, float py, int& idx, float& tx, float& ty) noexcept
+    auto locate = [gridSize = kGrid] (float px, float py, int& idx, float& tx, float& ty) noexcept
     {
-        float fx = (px + 1.0f) * (G * 0.5f) - 0.5f, fy = (py + 1.0f) * (G * 0.5f) - 0.5f;
-        fx = fx < 0.0f ? 0.0f : (fx > (float) G - 1.001f ? (float) G - 1.001f : fx);
-        fy = fy < 0.0f ? 0.0f : (fy > (float) G - 1.001f ? (float) G - 1.001f : fy);
+        float fx = (px + 1.0f) * (gridSize * 0.5f) - 0.5f, fy = (py + 1.0f) * (gridSize * 0.5f) - 0.5f;
+        fx = fx < 0.0f ? 0.0f : (fx > (float) gridSize - 1.001f ? (float) gridSize - 1.001f : fx);
+        fy = fy < 0.0f ? 0.0f : (fy > (float) gridSize - 1.001f ? (float) gridSize - 1.001f : fy);
         const int i0 = (int) fx, j0 = (int) fy;
         tx = fx - (float) i0;
         ty = fy - (float) j0;
-        idx = j0 * G + i0;
+        idx = j0 * gridSize + i0;
     };
 
     for (int i = 0; i < numGrains; ++i)

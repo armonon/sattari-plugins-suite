@@ -201,6 +201,7 @@ if(BUILD_TESTING)
         SattariAudioCorePsolaContract
         SattariAudioCoreLivePitchContract
         SattariAudioCoreCrepeContract
+        SattariAudioCoreOnnxPathContract
         SattariAudioCorePitchFusionContract
         SattariAudioCoreVoxContract
         SattariAudioCoreVoxSynthContract
@@ -230,6 +231,7 @@ if(BUILD_TESTING)
         SideChainMasterCoreContract
         SattariAlignCoreContract
         RoyalChainColorAliasingContract
+        RoyalChainTuneRenderContract
         HarmonyCoreContract
         MaqamCoreContract
         RhythmGenieCoreContract
@@ -406,10 +408,54 @@ if(BUILD_TESTING)
     endif()
 
     # Explicit qualification target: every registered test executable, without
-    # AU/VST3/Standalone post-build installation or signing side effects.
+    # Product installation side effects. Hosting tests build isolated VST3 fixtures.
     set(SATTARI_RELEASE_TEST_DEPENDENCIES)
+    # Bind recall regression tests to real native factories selected by the catalog.
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/config/products.json" release_catalog)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/config/launch.json" release_plan)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/products.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/config/launch.json")
+    string(JSON product_count LENGTH "${release_catalog}" products)
+    string(JSON status_count LENGTH "${release_plan}" catalogStatuses)
+    math(EXPR last_product "${product_count} - 1")
+    math(EXPR last_status "${status_count} - 1")
+    set(release_slugs)
+    foreach(product_index RANGE ${last_product})
+        string(JSON product_slug GET "${release_catalog}" products ${product_index} id)
+        string(JSON product_status GET "${release_catalog}" products ${product_index} portfolioStatus)
+        foreach(status_index RANGE ${last_status})
+            string(JSON included_status GET "${release_plan}" catalogStatuses ${status_index})
+            if(product_status STREQUAL included_status)
+                list(APPEND release_slugs "${product_slug}")
+            endif()
+        endforeach()
+    endforeach()
+    get_property(native_targets GLOBAL PROPERTY SATTARI_NATIVE_PLUGIN_TARGETS)
+    foreach(native_target IN LISTS native_targets)
+        get_target_property(product_slug ${native_target} SATTARI_PRODUCT_SLUG)
+        if(product_slug IN_LIST release_slugs)
+            set(recall_target "${native_target}BooleanStateContract")
+            add_executable(${recall_target} EXCLUDE_FROM_ALL core/tests/plugin_boolean_state_contract.cpp)
+            get_target_property(is_ara_effect ${native_target} JUCE_IS_ARA_EFFECT)
+            if(is_ara_effect)
+                target_sources(${recall_target} PRIVATE
+                    third_party/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_ARA.cpp)
+            endif()
+            target_compile_features(${recall_target} PRIVATE cxx_std_17)
+            target_include_directories(${recall_target} PRIVATE $<TARGET_PROPERTY:${native_target},INCLUDE_DIRECTORIES>)
+            target_compile_definitions(${recall_target} PRIVATE $<TARGET_PROPERTY:${native_target},COMPILE_DEFINITIONS>)
+            target_link_libraries(${recall_target} PRIVATE ${native_target}
+                juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+            add_test(NAME ${recall_target} COMMAND $<TARGET_FILE:${recall_target}>)
+            set_tests_properties(${recall_target} PROPERTIES LABELS "contract;state;non-stemdeck" TIMEOUT 60)
+            list(APPEND SATTARI_RELEASE_TEST_DEPENDENCIES ${recall_target})
+        endif()
+    endforeach()
     foreach(release_target IN ITEMS ${SATTARI_CONTRACT_TARGETS}
-            SongKeyARAContract AutoPitchARAContract SongKeyRender AutoPitchRender SattariStack)
+            SongKeyARAContract AutoPitchARAContract SongKeyRender AutoPitchRender SattariStack
+            RoyalChainProductContract SattariModularFXContract SattariModularInstrumentContract
+            SattariModularFXHostingContract SattariModularInstrumentHostingContract)
         if(TARGET ${release_target})
             list(APPEND SATTARI_RELEASE_TEST_DEPENDENCIES ${release_target})
         endif()

@@ -11,6 +11,10 @@ target_include_directories(SattariAudioCore
 
 target_compile_features(SattariAudioCore INTERFACE cxx_std_17)
 
+if(MSVC)
+    target_compile_definitions(SattariAudioCore INTERFACE _USE_MATH_DEFINES)
+endif()
+
 add_executable(SattariAudioCoreHarmonicContract
     tests/harmonic_core_contract.cpp)
 
@@ -239,6 +243,13 @@ add_executable(SattariAudioCoreCrepeContract
     tests/crepe_pitch_contract.cpp)
 
 target_link_libraries(SattariAudioCoreCrepeContract
+    PRIVATE
+        SattariAudioCore)
+
+add_executable(SattariAudioCoreOnnxPathContract
+    tests/onnx_path_contract.cpp)
+
+target_link_libraries(SattariAudioCoreOnnxPathContract
     PRIVATE
         SattariAudioCore)
 

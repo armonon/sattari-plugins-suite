@@ -2,6 +2,22 @@
 
 Internal JUCE/CMake plugin source for the current Sattari Audio plugin line.
 
+## Current Portfolio
+
+The October 2026 consolidation focuses new product work on **Modular** (FX and
+Instrument variants), **Royal Chain**, **Auto Pitch** and **Mix**, with **Tools**
+and **Compass** as supporting bundles. Vocal, Create and instrument collections
+live inside Modular; legacy wrappers keep their identities for existing sessions.
+No product is promoted to public-release approval by this reorganization.
+See [the consolidation record](docs/suite-consolidation-2026-10-02.md) for implemented
+features, compatibility boundaries, verification and pending migrations. The
+inventory below includes legacy, specialist and held products, not only the
+current storefront lineup.
+
+The current [launch qualification program](docs/launch-readiness.md) covers all
+16 current/specialist binaries with native Mac/Windows builds and exact-artifact
+validation. Historical wrapper candidates are not the consolidated launch suite.
+
 ## Included plugins and suite foundation
 
 `core/` is the header-only Sattari Audio Core: shared LookAndFeel/branding,
@@ -42,10 +58,10 @@ These are **internal plugin builds**, not sale-ready releases. Do not market the
 
 ## License
 
-The whole suite is licensed under **GPLv3** — see [`LICENSE`](LICENSE) and
-[`LICENSING.md`](LICENSING.md). (JUCE and Rubber Band are both used under their
-open-source terms; GPLv3 satisfies both.) You may sell binaries, but must offer the
-corresponding source under GPLv3 to anyone you distribute to.
+The repository's [`LICENSE`](LICENSE) currently contains GPLv3, but distribution
+is pending review: pinned JUCE 8 uses AGPLv3 or commercial terms, not the older
+GPL-only arrangement described here previously. No relicensing has been performed.
+See [`LICENSING.md`](LICENSING.md) before distributing any beta or paid binaries.
 
 ## Dependencies
 

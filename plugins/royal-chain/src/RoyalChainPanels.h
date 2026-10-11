@@ -11,6 +11,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariKeyButton.h>
+#include <sattari_audio_core/SattariReleaseUI.h>
 #include "RoyalChainTheme.h"
 
 #include <array>
@@ -59,6 +60,8 @@ private:
 
     RoyalChainAudioProcessor& processor;
     std::array<juce::Slider, kUnits> knobs;
+    sattari::releaseui::LookAndFeel bypassLook { 0xff96d7ba };
+    std::array<std::unique_ptr<sattari::releaseui::IconButton>, 9> bypassButtons;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> attachments;
     std::array<float, 10> led {}, ledShown {};
     std::array<bool, 10> dimShown {};

@@ -4,6 +4,7 @@
 
 namespace
 {
+    constexpr int kRealtimeScratchReserve = 8192;
     const juce::StringArray kNoteNames { "C", "C#", "D", "D#", "E", "F",
                                          "F#", "G", "G#", "A", "A#", "B" };
 }
@@ -58,7 +59,7 @@ void SattariTunerAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     // Cover down to ~40 Hz (low bass) up to ~1.2 kHz; ~50 ms window is plenty for
     // a stable low-note period while staying responsive.
     detector.prepare (sr, 40.0f, 1200.0f, 0.050f);
-    monoScratch.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
+    monoScratch.assign ((size_t) juce::jmax (kRealtimeScratchReserve, juce::jmax (1, samplesPerBlock)), 0.0f);
     smoothedMidi = -1.0;
     liveVoiced.store (false);
     liveMidi.store (-1);
@@ -79,16 +80,15 @@ void SattariTunerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int n     = buffer.getNumSamples();
 
     // Mono-sum into the preallocated scratch for detection (audio is untouched).
-    if ((int) monoScratch.size() < n)
-        monoScratch.assign ((size_t) n, 0.0f);
-    for (int i = 0; i < n; ++i)
+    const int analysisSamples = juce::jmin (n, (int) monoScratch.size());
+    for (int i = 0; i < analysisSamples; ++i)
     {
         float s = 0.0f;
         for (int ch = 0; ch < numCh; ++ch) s += buffer.getReadPointer (ch)[i];
         monoScratch[(size_t) i] = (numCh > 0) ? s / (float) numCh : 0.0f;
     }
 
-    detector.pushBlock (monoScratch.data(), n);
+    detector.pushBlock (monoScratch.data(), analysisSamples);
     const auto r = detector.analyse (0.3f);
 
     const double refA      = (double) param ("referenceA");

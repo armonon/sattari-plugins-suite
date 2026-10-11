@@ -1,4 +1,10 @@
-# Sattari Mac And Windows Candidates
+# Historical Wrapper Candidates
+
+This five-product lane is retained for compatibility work. It is not the current
+consolidated launch pipeline. Use `scripts/qualify_suite.py` and
+`docs/launch-readiness.md` for the catalog-driven current suite.
+
+## Sattari Mac And Windows Candidates
 
 The five redesigned plugins share the embedded Sattari logo and existing
 parameter/session formats. Arp is MIDI-only and has no standalone application.

@@ -63,9 +63,9 @@ public:
         out.push_back (std::make_unique<FP> (juce::ParameterID { prefix + "lookahead", 1 }, "Lookahead",
             juce::NormalisableRange<float> (0.5f, 10.0f, 0.01f), 3.0f,
             juce::AudioParameterFloatAttributes().withLabel ("ms")));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID { prefix + "truePeak", 1 }, "True-Peak Detect", true));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID { prefix + "autoLoud", 1 }, "Target Loudness", false));
         out.push_back (std::make_unique<FP> (juce::ParameterID { prefix + "targetLufs", 1 }, "Target LUFS",
             juce::NormalisableRange<float> (-24.0f, -6.0f, 0.1f), -14.0f,

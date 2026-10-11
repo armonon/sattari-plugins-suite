@@ -4,6 +4,7 @@
 // (the envelope gate closes — no runaway self-oscillation).
 #include "PluginProcessor.h"
 #include <sattari_audio_core/SattariEditorRender.h>
+#include "../../../core/tests/boolean_state_contract.h"
 #include <cmath>
 #include <cstdio>
 
@@ -86,6 +87,7 @@ int main (int argc, char** argv)
     }
     const double sr = 48000.0;
     int fails = 0;
+    { SubConjurerAudioProcessor processor; fails += runBooleanStateContract (processor); }
 
     // 1) Feed a sustained 60 Hz tone -> a synthesized, bounded, SUB-band tone.
     double peak = 0.0;

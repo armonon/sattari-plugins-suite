@@ -48,7 +48,7 @@ public:
             R (0.0f, 1.0f, 0.01f), 1.0f));
         out.push_back (std::make_unique<P> (juce::ParameterID (prefix + "bias", 1),   "Bias",
             R (-1.0f, 1.0f, 0.01f), 0.0f));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "bypass", 1), "Bypass", false));
     }
 

@@ -29,9 +29,7 @@ RoyalChainView::RoyalChainView (RoyalChainAudioProcessor& p, sattari::presets::S
     addAndMakeVisible (presetPrev);
     addAndMakeVisible (presetNext);
 
-    presetBox.addItemList (juce::StringArray {
-        "Industry Lead", "Hard Tune Hook", "Silk Lead", "Radio Lead", "Persian Pop Lead",
-        "Podcast Clean", "Demo Vocal Fix", "Noisy Room Rescue", "Thin Vocal Repair", "Harsh Mic Smooth", "Phone Recording Polish" }, 1);
+    for (int i = 0; i < processor.getNumPrograms(); ++i) presetBox.addItem (processor.getProgramName (i), i + 1);
     presetBox.setTextWhenNothingSelected ("FACTORY PRESETS");
     presetBox.setTitle ("Factory presets");
     presetBox.setTooltip ("Factory vocal chains");
@@ -62,6 +60,11 @@ RoyalChainView::RoyalChainView (RoyalChainAudioProcessor& p, sattari::presets::S
         sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
     };
     addAndMakeVisible (midiLearnButton);
+    original.setTitle ("Audition Original"); original.setTooltip ("Audition the latency-aligned original input");
+    levelMatch.setTitle ("Level Match"); levelMatch.setTooltip ("Attenuate processed audio toward the original RMS level; does not boost or measure LUFS");
+    addAndMakeVisible (original); addAndMakeVisible (levelMatch);
+    originalAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.parameters(), "auditionOriginal", original);
+    matchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.parameters(), "levelMatch", levelMatch);
 
     addAndMakeVisible (compassComp);
     addAndMakeVisible (spineComp);
@@ -128,44 +131,7 @@ void RoyalChainView::stepPreset (int delta)
 
 void RoyalChainView::applyPreset (int presetIndex)
 {
-    struct Preset
-    {
-        int style;
-        float input, output, clean, tune, control, tone, air, smooth, glow, width, space, royal;
-    };
-
-    static constexpr Preset presets[] = {
-        { 0, 0.0f, -0.5f, 0.58f, 0.00f, 0.64f, 0.52f, 0.55f, 0.44f, 0.38f, 0.28f, 0.22f, 0.60f },
-        { 7, 0.0f, -1.0f, 0.45f, 0.35f, 0.70f, 0.45f, 0.60f, 0.38f, 0.44f, 0.34f, 0.20f, 0.72f },
-        { 1, 0.0f, -0.5f, 0.62f, 0.00f, 0.52f, 0.58f, 0.48f, 0.52f, 0.30f, 0.20f, 0.28f, 0.52f },
-        { 2, 0.0f, -0.8f, 0.58f, 0.00f, 0.66f, 0.50f, 0.70f, 0.48f, 0.36f, 0.24f, 0.22f, 0.64f },
-        { 3, 0.0f, -0.7f, 0.55f, 0.00f, 0.58f, 0.54f, 0.56f, 0.50f, 0.34f, 0.20f, 0.30f, 0.56f },
-        { 5, 0.0f, -1.5f, 0.72f, 0.00f, 0.42f, 0.44f, 0.30f, 0.60f, 0.10f, 0.00f, 0.06f, 0.30f },
-        { 8, 1.5f, -1.0f, 0.78f, 0.00f, 0.60f, 0.38f, 0.48f, 0.56f, 0.22f, 0.12f, 0.10f, 0.46f },
-        { 8, 2.0f, -1.5f, 0.90f, 0.00f, 0.50f, 0.40f, 0.36f, 0.62f, 0.12f, 0.06f, 0.04f, 0.36f },
-        { 8, 1.0f, -0.8f, 0.52f, 0.00f, 0.48f, 0.72f, 0.62f, 0.38f, 0.28f, 0.16f, 0.12f, 0.42f },
-        { 8, 0.0f, -1.2f, 0.64f, 0.00f, 0.52f, 0.36f, 0.28f, 0.82f, 0.08f, 0.08f, 0.08f, 0.34f },
-        { 8, 2.5f, -1.8f, 0.76f, 0.00f, 0.55f, 0.42f, 0.40f, 0.70f, 0.18f, 0.10f, 0.05f, 0.40f }
-    };
-
-    if (! juce::isPositiveAndBelow (presetIndex, (int) std::size (presets)))
-        return;
-
-    const auto& pr = presets[presetIndex];
-    auto& state = processor.parameters();
-    MacroController::setParameterValue (state, "style", (float) pr.style);
-    MacroController::setParameterValue (state, "input", pr.input);
-    MacroController::setParameterValue (state, "output", pr.output);
-    MacroController::setParameterValue (state, "clean", pr.clean);
-    MacroController::setParameterValue (state, "tune", pr.tune);
-    MacroController::setParameterValue (state, "control", pr.control);
-    MacroController::setParameterValue (state, "tone", pr.tone);
-    MacroController::setParameterValue (state, "air", pr.air);
-    MacroController::setParameterValue (state, "smooth", pr.smooth);
-    MacroController::setParameterValue (state, "glow", pr.glow);
-    MacroController::setParameterValue (state, "width", pr.width);
-    MacroController::setParameterValue (state, "space", pr.space);
-    MacroController::setParameterValue (state, "royal", pr.royal);
+    processor.setCurrentProgram (presetIndex);
 }
 
 void RoyalChainView::paint (juce::Graphics& g)
@@ -190,7 +156,8 @@ void RoyalChainView::resized()
 
     compassComp.setBounds (16, 68, VocalCrownCompass::kWidth, VocalCrownCompass::kHeight);
     spineComp.setBounds (772, 68, 312, 508);
-    deckComp.setBounds (16, 588, 1068, 156);
+    original.setBounds (772, 588, 130, 28); levelMatch.setBounds (910, 588, 160, 28);
+    deckComp.setBounds (16, 628, 1068, 156);
 }
 
 void RoyalChainView::appendCaptionChecks (std::vector<th::CaptionCheck>& out) const
@@ -210,7 +177,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     addAndMakeVisible (view);
 
     setResizable (true, true);
-    setResizeLimits (935, 646, 1540, 1064);
+    setResizeLimits (935, 680, 1540, 1120);
     if (auto* c = getConstrainer())
         c->setFixedAspectRatio ((double) RoyalChainView::kWidth / (double) RoyalChainView::kHeight);
 
@@ -218,7 +185,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
         compact = d->userArea.getHeight() < 860;
     if (compact)
-        setSize (935, 646);
+        setSize (935, 680);
     else
         setSize (RoyalChainView::kWidth, RoyalChainView::kHeight);
 }

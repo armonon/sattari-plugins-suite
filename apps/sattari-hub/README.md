@@ -7,8 +7,15 @@ Sattari Hub is the Mac-first downloadable application layer for the Sattari Audi
 ## What it does now
 
 - Loads `sattari-products.json` from the app resources.
-- Presents six customer-facing products generated from `config/products.json`:
-  Compass, Auto Pitch, Instruments, Vocal, Mix, and Create.
+- Presents four flagships generated from `config/products.json`: Modular (FX and
+  Instrument), Royal Chain, Auto Pitch and Mix, plus Tools and Compass bundles.
+  Default suite installs select current active/specialist shipping products.
+  Legacy identities remain in the manifest for explicit installs and updates
+  to existing receipts; consolidation does not uninstall old session plugins.
+  Modular payloads require binary version 0.2.0; historical bundles in the
+  canonical build tree are not offered as the merged version. Packaging checks
+  enforce the same guard. Fresh development bundles live in `build/upgrade-modular`
+  until the canonical distribution tree is rebuilt and qualified.
 - Expands each product into its implementation components only when requested,
   so the customer sees a coherent suite instead of 48 unrelated plugin cards.
 - Installs a product only when every declared AU, VST3, and Standalone bundle is
@@ -81,6 +88,6 @@ SATTARI_REPO_ROOT=/path/to/repos/sattari-plugins swift run SattariHub --contract
 - No notarized DMG/PKG yet.
 - No license/login/download entitlement layer yet.
 - Product quality remains gated by each plugin's own DAW/listening validation.
-- Catalog lifecycle/profile labels and the six product groupings communicate
+- Catalog lifecycle/profile labels and portfolio groupings communicate
   intended availability, not release approval. The exact artifacts still need
   the [release qualification gates](../../docs/release-qualification.md).

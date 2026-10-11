@@ -10,8 +10,8 @@ from pathlib import Path
 required = [
     'plugins/sub-conjurer/CMakeLists.txt',
     'plugins/stemdeck/CMakeLists.txt',
-    'plugins/stemdeck/src/PluginHostManager.cpp',
-    'plugins/stemdeck/src/PluginHostManager.h',
+    'plugins/stemdeck/src/HostGraph.cpp',
+    'plugins/stemdeck/src/HostGraph.h',
     'plugins/stemdeck/docs/stemdeck-sale-readiness-gates.md',
     'scripts/stemdeck_manual_validation_template.sh',
     'scripts/validate_stemdeck_app_bundle.sh',
@@ -25,8 +25,8 @@ for p in required:
 readme = Path('plugins/stemdeck/README.md').read_text()
 if 'not sale-ready' not in readme.lower():
     raise SystemExit('StemDeck README must keep explicit not-sale-ready truth label')
-if 'PluginHostManager' not in readme:
-    raise SystemExit('StemDeck README must mention PluginHostManager scaffold')
+if 'HostGraph' not in readme:
+    raise SystemExit('StemDeck README must mention HostGraph scaffold')
 if 'validate_stemdeck_app_bundle.sh' not in Path('scripts/package_stemdeck_app_alpha.sh').read_text():
     raise SystemExit('StemDeck app package script must include reusable app-bundle validation')
 ui_source = Path('plugins/stemdeck/src/MainPluginEditor.cpp').read_text()

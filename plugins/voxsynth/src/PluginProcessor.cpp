@@ -3,6 +3,7 @@
 
 namespace
 {
+constexpr int kRealtimeScratchReserve = 8192;
 const juce::StringArray kWaves { "Sine", "Saw", "Square", "Triangle" };
 const juce::StringArray kModes { "Synth", "MIDI" };
 }
@@ -107,8 +108,10 @@ void SattariVoxSynthAudioProcessor::prepareToPlay (double sampleRate, int sample
     analyzer_.prepare (sampleRate, cfg);
     engine_.prepare (sampleRate);
     vocoder_.prepare (sampleRate, 20);
-    frames_.assign ((size_t) analyzer_.maxFramesForBlock (juce::jmax (32, samplesPerBlock)) + 4, {});
-    mono_.assign ((size_t) juce::jmax (32, samplesPerBlock), 0.0f);
+    const int preparedBlockSize = juce::jmax (kRealtimeScratchReserve, juce::jmax (32, samplesPerBlock));
+    frames_.assign ((size_t) analyzer_.maxFramesForBlock (preparedBlockSize) + 4, {});
+    mono_.assign ((size_t) preparedBlockSize, 0.0f);
+    synthScratch_.setSize (1, preparedBlockSize, false, false, true);
     activeNote_ = -1; percHold_ = 0; percNote_ = -1;
     // Force a fresh announcement after any re-prepare: the host may have rebuilt the
     // graph underneath us and the receiving instrument could be a different one.
@@ -169,6 +172,11 @@ void SattariVoxSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
     if (n <= 0) return;
+    if ((int) mono_.size() < n || synthScratch_.getNumSamples() < n)
+    {
+        buffer.clear();
+        return;
+    }
     auto main = getBusBuffer (buffer, true, 0);
     const int nch = main.getNumChannels();
 
@@ -179,7 +187,6 @@ void SattariVoxSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     if (quantOn && now - lastBusPollMs_ > 500) { lastBusPollMs_ = now; pullBusKey(); }
 
     // Mono sum of the voice.
-    if ((int) mono_.size() < n) mono_.assign ((size_t) n, 0.0f);
     for (int i = 0; i < n; ++i)
     {
         float s = 0.0f; for (int c = 0; c < nch; ++c) s += main.getSample (c, i);
@@ -224,8 +231,8 @@ void SattariVoxSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     // Synth output is rendered segment-by-segment between frame boundaries; MIDI is
     // emitted at each frame's sampleOffset. In MIDI mode we pass the dry voice through
     // so the singer can still monitor themselves.
-    juce::AudioBuffer<float> synth (1, n); synth.clear();
-    float* sp = synth.getWritePointer (0);
+    synthScratch_.clear (0, 0, n);
+    float* sp = synthScratch_.getWritePointer (0);
     int cursor = 0;
     LiveReading lr;
 

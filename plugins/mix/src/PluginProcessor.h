@@ -40,6 +40,8 @@ public:
     Settings assistSettings() const noexcept;
     void setAssistSettings (const Settings&);
     Track trackSnapshot() const;
+    void recordDecision (const juce::String&);
+    juce::String decisionHistory() const;
     juce::String groupName() const;
     juce::String trackName() const;
     void setIdentity (const juce::String& group, const juce::String& name);
@@ -61,7 +63,9 @@ private:
     std::unique_ptr<MixController> controller;
     sattari::automix::Analyzer analyzer;
     sattari::automix::AssistDSP assist;
-    std::array<std::atomic<float>*, 9> controls {};
+    std::array<std::atomic<float>*, 10> controls {};
+    mutable juce::CriticalSection historyMutex;
+    juce::StringArray history;
     std::atomic<float> monitorTrim { 0 };
     std::atomic<unsigned> requestedCapture { 0 }, publishedCapture { 0 };
     std::atomic<int> captureSeconds { 0 };

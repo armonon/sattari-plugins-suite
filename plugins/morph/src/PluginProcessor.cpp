@@ -2,8 +2,12 @@
 #include "PluginEditor.h"
 #include <algorithm>
 
-namespace { const juce::StringArray kModes { "Shift", "Quantize", "Robot" };
-           const juce::StringArray kNotes { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }; }
+namespace
+{
+constexpr int kRealtimeScratchReserve = 8192;
+const juce::StringArray kModes { "Shift", "Quantize", "Robot" };
+const juce::StringArray kNotes { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+}
 
 SattariMorphAudioProcessor::SattariMorphAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
@@ -111,7 +115,7 @@ void SattariMorphAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     pitch_.prepare (sampleRate, 60.0f, 1000.0f, 0.045f);
     psola_.prepare (sampleRate, 60.0, 1000.0);
     formant_.prepare (sampleRate, 10, 4);
-    const int n = juce::jmax (32, samplesPerBlock);
+    const int n = juce::jmax (kRealtimeScratchReserve, juce::jmax (32, samplesPerBlock));
     dryMono_.assign ((size_t) n, 0.0f);
     wet_.assign ((size_t) n, 0.0f);
     totalLatency_ = psola_.getLatencySamples() + formant_.latencySamples();
@@ -170,7 +174,8 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (n <= 0) return;
     auto main = getBusBuffer (buffer, true, 0);
     const int nch = main.getNumChannels();
-    if ((int) dryMono_.size() < n) { dryMono_.assign ((size_t) n, 0.0f); wet_.assign ((size_t) n, 0.0f); }
+    if ((int) dryMono_.size() < n || (int) wet_.size() < n || (int) out_.size() < n)
+        return;
 
     const int mode = (int) apvts.getRawParameterValue ("mode")->load();   // 0 Shift 1 Quantize 2 Robot
     const float pitchKnob = apvts.getRawParameterValue ("pitch")->load();
@@ -227,7 +232,6 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // Delay dry to the wet latency, then mix -> mono out scratch.
-    if ((int) out_.size() < n) out_.assign ((size_t) n, 0.0f);
     for (int i = 0; i < n; ++i)
     {
         dryDelay_[(size_t) dryPos_] = dryMono_[(size_t) i];
@@ -249,9 +253,11 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (now - lastBusPollMs_ > 500) { lastBusPollMs_ = now; pullBusScale(); }
         }
         const float hr = echoHarmonyRatio (harmVoice, pr.voiced, pr.frequencyHz);
-        if ((int) harmScratch_.size() < n) harmScratch_.assign ((size_t) n, 0.0f);
-        harmShifter_.process (dryMono_.data(), harmScratch_.data(), n, hr, period);
-        for (int i = 0; i < n; ++i) out_[(size_t) i] += harmMix * harmScratch_[(size_t) i];
+        if ((int) harmScratch_.size() >= n)
+        {
+            harmShifter_.process (dryMono_.data(), harmScratch_.data(), n, hr, period);
+            for (int i = 0; i < n; ++i) out_[(size_t) i] += harmMix * harmScratch_[(size_t) i];
+        }
     }
 
     // Key Echo: harmonise the CURRENT (pitched) input in key, feed it a feedback delay,
@@ -268,7 +274,8 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             if (now - lastBusPollMs_ > 500) { lastBusPollMs_ = now; pullBusScale(); }
         }
         const float hratio = echoHarmonyRatio (echoMode, pr.voiced, pr.frequencyHz);
-        if ((int) echoHarm_.size() < n) echoHarm_.assign ((size_t) n, 0.0f);
+        if ((int) echoHarm_.size() < n)
+            return;
         echoShifter_.process (dryMono_.data(), echoHarm_.data(), n, hratio, period);
 
         const int bsz = (int) echoBuf_.size();

@@ -111,6 +111,7 @@ validate_bundle() {
 while IFS= read -r relative_path; do
     src="$(resolve_source "$relative_path")"
     validate_bundle "$src"
+    python3 "$repo_root/scripts/check_hub_bundle_version.py" "$repo_root/apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json" "$relative_path" "$src"
     if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
         "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$src"
     fi
@@ -119,17 +120,18 @@ while IFS= read -r relative_path; do
     # Use ditto so .app/.vst3/.component bundle attrs survive intact.
     ditto "$src" "$dst"
     validate_bundle "$dst"
+    python3 "$repo_root/scripts/check_hub_bundle_version.py" "$repo_root/apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json" "$relative_path" "$dst"
     if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
         "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$dst"
     fi
     copied=$((copied + 1))
 done < <(python3 -c "
-import json,sys
+import json,sys,os
 with open('$repo_root/apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json') as f:
     d=json.load(f)
 seen=set()
 for p in d['products']:
-    if p.get('shippingProfile') != 'alpha':
+    if p.get('shippingProfile') != 'alpha' or (p.get('portfolioStatus', 'active') not in ('active', 'specialist') and os.environ.get('SATTARI_INCLUDE_LEGACY') != '1'):
         continue
     for b in p['bundles']:
         path=b['relativeSourcePath']
@@ -138,10 +140,10 @@ for p in d['products']:
             print(path)
 ")
 expected="$(python3 -c "
-import json
+import json,os
 with open('$repo_root/apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json') as f:
     d=json.load(f)
-print(len({b['relativeSourcePath'] for p in d['products'] if p.get('shippingProfile') == 'alpha' for b in p['bundles']}))
+print(len({b['relativeSourcePath'] for p in d['products'] if p.get('shippingProfile') == 'alpha' and (p.get('portfolioStatus', 'active') in ('active', 'specialist') or os.environ.get('SATTARI_INCLUDE_LEGACY') == '1') for b in p['bundles']}))
 ")"
 [ "$copied" -eq "$expected" ] || { echo "ERROR: expected $expected complete alpha bundles, copied $copied" >&2; exit 2; }
 echo "   copied and validated $copied alpha bundle(s)"

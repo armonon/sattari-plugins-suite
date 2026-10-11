@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "PluginEditor.h"
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
@@ -69,7 +70,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     // published by Sattari Key (or any Sattari publisher). Default OFF so the manual
     // Root menu is authoritative out of the box; the editor greys Root while Follow
     // is engaged so the override is never silent.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Off", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("gate", "Gate",
@@ -81,9 +82,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterInt> ("fixedVelocity", "Fixed Velocity", 1, 127, 96));
     params.push_back (std::make_unique<juce::AudioParameterInt> ("humanize", "Humanize", 0, 20, 0));
     params.push_back (std::make_unique<juce::AudioParameterInt> ("transpose", "Transpose", -24, 24, 0));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("latch", "Latch", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("inputThru", "Input Thru", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("hostSync", "Host Sync", true));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("latch", "Latch", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("inputThru", "Input Thru", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("hostSync", "Host Sync", true));
 
     // Cross-plugin session follows (Compass bus), appended at the END of the layout
     // so existing parameter indices/automation stay stable. Both default OFF so
@@ -94,8 +95,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     //  * followEnergy: the published arrangement energy (0..1) drives dynamics —
     //    velocity scales by (0.5 + 0.5*energy), and above 0.75 the pattern range
     //    gains +1 octave and the hits get an accent lift (audible chorus/drop).
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSwing", "Follow Swing", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followEnergy", "Follow Energy", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followSwing", "Follow Swing", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followEnergy", "Follow Energy", false));
 
     return { params.begin(), params.end() };
 }

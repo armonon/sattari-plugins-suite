@@ -1,17 +1,29 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "suiteVersion": "0.2.0-alpha",
   "truthLabel": "Internal development suite. Products are not public, notarized, or sale-ready unless an evidence-backed release record says otherwise.",
   "defaultUpdateChannel": "internal-alpha",
   "suite": [
     {
-      "id": "compass",
-      "name": "Sattari Compass",
-      "verb": "knows",
-      "accent": "blue",
-      "tier": "free",
-      "tagline": "The session authority. Detects key, chord, reference, energy and musical onsets, reads host tempo, and publishes the context you approve.",
-      "primary": "brain"
+      "id": "modular",
+      "name": "Sattari Modular",
+      "verb": "builds",
+      "accent": "amber",
+      "tier": "paid",
+      "tagline": "Native effects and layered instruments in one chain platform, with VST3 hosting.",
+      "primary": "modular",
+      "kind": "flagship",
+      "page": "modular.html"
+    },
+    {
+      "id": "royal-chain",
+      "name": "Sattari Royal Chain",
+      "verb": "finishes",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "A focused vocal finishing chain with tuning, dynamics, tone and ambience.",
+      "primary": "royal-chain",
+      "kind": "flagship"
     },
     {
       "id": "auto-pitch",
@@ -19,44 +31,39 @@
       "verb": "tunes",
       "accent": "mint",
       "tier": "paid",
-      "tagline": "Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.",
-      "primary": "auto-pitch"
-    },
-    {
-      "id": "instruments",
-      "name": "Sattari Instruments",
-      "verb": "makes",
-      "accent": "amber",
-      "tier": "paid",
-      "tagline": "Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.",
-      "primary": "stack"
-    },
-    {
-      "id": "vocal",
-      "name": "Sattari Vocal",
-      "verb": "sings",
-      "accent": "mint",
-      "tier": "paid",
-      "tagline": "An eight-slot vocal finishing rack for cleanup, dynamics, tone, doubling and space.",
-      "primary": "vocal"
+      "tagline": "Precision vocal tuning, captured-note editing and harmony.",
+      "primary": "auto-pitch",
+      "kind": "flagship"
     },
     {
       "id": "mix",
       "name": "Sattari Mix",
-      "verb": "controls",
-      "accent": "mint",
+      "verb": "balances",
+      "accent": "blue",
       "tier": "paid",
-      "tagline": "Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.",
-      "primary": "mix"
+      "tagline": "Linked-track analysis and gain, EQ and dynamics proposals with compare and undo.",
+      "primary": "mix",
+      "kind": "flagship"
     },
     {
-      "id": "create",
-      "name": "Sattari Create",
-      "verb": "transforms",
-      "accent": "violet",
-      "tier": "paid",
-      "tagline": "Musical effects that can follow approved key and tempo context from Compass.",
-      "primary": "create"
+      "id": "tools",
+      "name": "Sattari Tools",
+      "verb": "shapes",
+      "accent": "amber",
+      "tier": "bundle",
+      "tagline": "Arpeggiation, low-end generation, MIDI mapping, ducking and timing alignment.",
+      "primary": "sattari-arp",
+      "kind": "tools"
+    },
+    {
+      "id": "compass",
+      "name": "Sattari Compass",
+      "verb": "measures",
+      "accent": "blue",
+      "tier": "free",
+      "tagline": "Session context, key detection, tuning displays and analysis utilities.",
+      "primary": "brain",
+      "kind": "foundation"
     }
   ],
   "products": [
@@ -79,7 +86,9 @@
       "candidateVersion": "0.5.0",
       "lifecycleEvidence": "validation/auto-pitch/2026-08-16-rc3-fast-correction-hardening.md",
       "lifecycleFrozenRevision": null,
-      "previousFrozenRevision": "7fef544a6d49"
+      "previousFrozenRevision": "7fef544a6d49",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "song-key",
@@ -97,7 +106,9 @@
       "suite": "compass",
       "suiteRole": "component",
       "candidateVersion": "0.3.0",
-      "lifecycleEvidence": "validation/song-key/2026-08-16-full-song-and-live-analysis.md"
+      "lifecycleEvidence": "validation/song-key/2026-08-16-full-song-and-live-analysis.md",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "voxkey",
@@ -107,9 +118,12 @@
       "lifecycle": "experimental",
       "role": "utility",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "instruments",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "held",
+      "destination": "modular"
     },
     {
       "id": "voxsynth",
@@ -119,12 +133,15 @@
       "lifecycle": "experimental",
       "role": "instrument",
       "shippingProfile": null,
-      "webVisible": true,
+      "webVisible": false,
       "ci": {
         "test": "VoxSynthMpeContract"
       },
-      "suite": "instruments",
-      "suiteRole": "component"
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "held",
+      "destination": "modular"
     },
     {
       "id": "morph",
@@ -134,9 +151,12 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "held",
+      "destination": "modular"
     },
     {
       "id": "mix",
@@ -152,7 +172,9 @@
         "uiRender": true
       },
       "suite": "mix",
-      "suiteRole": "primary"
+      "suiteRole": "primary",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "create",
@@ -162,13 +184,16 @@
       "lifecycle": "alpha",
       "role": "rack",
       "shippingProfile": "alpha",
-      "webVisible": true,
+      "webVisible": false,
       "ci": {
         "test": "SattariCreateProductContract",
         "uiRender": true
       },
-      "suite": "create",
-      "suiteRole": "primary"
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "collections": [],
+      "portfolioStatus": "legacy",
+      "destination": "modular"
     },
     {
       "id": "vocal",
@@ -178,13 +203,16 @@
       "lifecycle": "alpha",
       "role": "rack",
       "shippingProfile": "alpha",
-      "webVisible": true,
+      "webVisible": false,
       "ci": {
         "test": "SattariVocalProductContract",
         "uiRender": true
       },
-      "suite": "vocal",
-      "suiteRole": "primary"
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "collections": [],
+      "portfolioStatus": "legacy",
+      "destination": "modular"
     },
     {
       "id": "stack",
@@ -194,12 +222,15 @@
       "lifecycle": "alpha",
       "role": "rack",
       "shippingProfile": "alpha",
-      "webVisible": true,
+      "webVisible": false,
       "ci": {
         "test": "SattariStackLayerContract"
       },
-      "suite": "instruments",
-      "suiteRole": "primary"
+      "suite": "modular",
+      "suiteRole": "legacy",
+      "collections": [],
+      "portfolioStatus": "legacy",
+      "destination": "modular"
     },
     {
       "id": "stemdeck",
@@ -211,7 +242,9 @@
       "shippingProfile": null,
       "webVisible": false,
       "suite": null,
-      "suiteRole": null
+      "suiteRole": null,
+      "collections": [],
+      "portfolioStatus": "separate"
     },
     {
       "id": "sub-conjurer",
@@ -226,8 +259,10 @@
         "test": "SubConjurerContract",
         "uiRender": true
       },
-      "suite": "mix",
-      "suiteRole": "component"
+      "suite": "tools",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "side-chain-master",
@@ -238,8 +273,10 @@
       "role": "effect",
       "shippingProfile": null,
       "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "suite": "tools",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "royal-chain",
@@ -250,8 +287,10 @@
       "role": "effect",
       "shippingProfile": null,
       "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "suite": "royal-chain",
+      "suiteRole": "primary",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "harmony",
@@ -261,13 +300,16 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "vocal",
+      "webVisible": false,
+      "suite": "auto-pitch",
       "suiteRole": "component",
       "ci": {
         "test": "HarmonyCoreContract",
         "render": "HarmonyRender"
-      }
+      },
+      "collections": [],
+      "portfolioStatus": "migration-pending",
+      "destination": "auto-pitch"
     },
     {
       "id": "maqam",
@@ -279,7 +321,9 @@
       "shippingProfile": null,
       "webVisible": true,
       "suite": "auto-pitch",
-      "suiteRole": "component"
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "specialist"
     },
     {
       "id": "vocal-master",
@@ -289,9 +333,12 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "royal-chain",
+      "suiteRole": "legacy",
+      "collections": [],
+      "portfolioStatus": "legacy",
+      "destination": "royal-chain"
     },
     {
       "id": "rhythm-genie",
@@ -301,12 +348,17 @@
       "lifecycle": "experimental",
       "role": "instrument",
       "shippingProfile": null,
-      "webVisible": true,
+      "webVisible": false,
       "ci": {
         "test": "RhythmGenieTimingContract"
       },
-      "suite": "instruments",
-      "suiteRole": "component"
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "instruments"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "chop",
@@ -316,9 +368,14 @@
       "lifecycle": "experimental",
       "role": "instrument",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "instruments",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "instruments"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "sattari-arp",
@@ -333,8 +390,10 @@
         "test": "SattariArpTimingContract",
         "uiRender": true
       },
-      "suite": "instruments",
-      "suiteRole": "component"
+      "suite": "tools",
+      "suiteRole": "primary",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "bus",
@@ -344,9 +403,12 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
+      "webVisible": false,
       "suite": "mix",
-      "suiteRole": "component"
+      "suiteRole": "legacy",
+      "collections": [],
+      "portfolioStatus": "legacy",
+      "destination": "mix"
     },
     {
       "id": "align",
@@ -357,8 +419,10 @@
       "role": "effect",
       "shippingProfile": null,
       "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "suite": "tools",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "warp",
@@ -368,9 +432,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "tuner",
@@ -382,7 +451,9 @@
       "shippingProfile": null,
       "webVisible": true,
       "suite": "compass",
-      "suiteRole": "component"
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "double",
@@ -392,9 +463,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "deess",
@@ -404,9 +480,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "face",
@@ -416,9 +497,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "transient",
@@ -428,9 +514,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "meter",
@@ -441,8 +532,10 @@
       "role": "utility",
       "shippingProfile": null,
       "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "suite": "compass",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "scaler",
@@ -453,8 +546,10 @@
       "role": "midi",
       "shippingProfile": null,
       "webVisible": true,
-      "suite": "instruments",
-      "suiteRole": "component"
+      "suite": "tools",
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "eq",
@@ -464,9 +559,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "space",
@@ -476,9 +577,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "clean",
@@ -488,9 +595,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "comp",
@@ -500,9 +613,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "peak",
@@ -512,9 +631,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "vocoder",
@@ -524,9 +648,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "shimmer",
@@ -536,9 +665,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "echo",
@@ -548,9 +682,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "heat",
@@ -560,9 +699,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "multiband",
@@ -572,9 +717,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "gate",
@@ -584,9 +734,15 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal",
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "riser",
@@ -596,9 +752,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "pulse",
@@ -608,9 +769,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "eightoheight",
@@ -620,9 +786,14 @@
       "lifecycle": "experimental",
       "role": "instrument",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "imager",
@@ -632,9 +803,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "mix",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "mix"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "warble",
@@ -644,9 +820,14 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "create",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "create"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "scope",
@@ -658,7 +839,9 @@
       "shippingProfile": null,
       "webVisible": true,
       "suite": "compass",
-      "suiteRole": "component"
+      "suiteRole": "component",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "granulator",
@@ -668,9 +851,14 @@
       "lifecycle": "experimental",
       "role": "instrument",
       "shippingProfile": null,
-      "webVisible": true,
-      "suite": "instruments",
-      "suiteRole": "component"
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "instruments"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
     },
     {
       "id": "brain",
@@ -686,7 +874,9 @@
         "uiRender": true
       },
       "suite": "compass",
-      "suiteRole": "primary"
+      "suiteRole": "primary",
+      "collections": [],
+      "portfolioStatus": "active"
     },
     {
       "id": "glass-choir",
@@ -696,9 +886,124 @@
       "lifecycle": "experimental",
       "role": "effect",
       "shippingProfile": null,
+      "webVisible": false,
+      "suite": "modular",
+      "suiteRole": "component",
+      "collections": [
+        "vocal"
+      ],
+      "portfolioStatus": "module",
+      "destination": "modular"
+    },
+    {
+      "id": "modular",
+      "name": "Sattari Modular FX",
+      "category": "Modular rack",
+      "accent": "amber",
+      "lifecycle": "alpha",
+      "role": "rack",
+      "shippingProfile": "alpha",
       "webVisible": true,
-      "suite": "vocal",
-      "suiteRole": "component"
+      "sourceDirectory": "modular",
+      "buildTarget": "SattariModularFX",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "collections": [],
+      "suite": "modular",
+      "suiteRole": "primary",
+      "portfolioStatus": "active",
+      "binaryVersion": "0.2.0"
+    },
+    {
+      "id": "modular-instrument",
+      "name": "Sattari Modular Instrument",
+      "category": "Modular rack",
+      "accent": "amber",
+      "lifecycle": "alpha",
+      "role": "instrument",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "sourceDirectory": "modular",
+      "buildTarget": "SattariModularInstrument",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "collections": [],
+      "suite": "modular",
+      "suiteRole": "variant",
+      "portfolioStatus": "active",
+      "binaryVersion": "0.2.0"
     }
-  ]
+  ],
+  "collections": [
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal Collection",
+      "destination": "modular",
+      "members": [
+        "clean",
+        "gate",
+        "deess",
+        "eq",
+        "comp",
+        "heat",
+        "double",
+        "face",
+        "glass-choir",
+        "space"
+      ]
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create Collection",
+      "destination": "modular",
+      "members": [
+        "echo",
+        "heat",
+        "pulse",
+        "riser",
+        "shimmer",
+        "space",
+        "warble",
+        "warp",
+        "vocoder",
+        "eightoheight"
+      ]
+    },
+    {
+      "id": "instruments",
+      "name": "Sattari Instruments Collection",
+      "destination": "modular",
+      "members": [
+        "chop",
+        "granulator",
+        "rhythm-genie"
+      ]
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix Collection",
+      "destination": "modular",
+      "members": [
+        "clean",
+        "eq",
+        "comp",
+        "gate",
+        "peak",
+        "multiband",
+        "imager",
+        "transient"
+      ]
+    }
+  ],
+  "consolidation": {
+    "date": "2026-10-02",
+    "preserveLegacyIdentities": true,
+    "publicReleaseApproved": false
+  }
 }

@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -59,6 +60,50 @@ class ContractRunnerTests(unittest.TestCase):
         ]) as mocked:
             self.assertEqual(runner.run(Path("build")), 1)
             self.assertEqual(mocked.call_count, 3)
+
+    def test_release_configuration_and_executable_hash_are_recorded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "contract"
+            executable.write_bytes(b"actual tested binary")
+            report = Path(temp) / "results.json"
+            with patch.object(runner.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0),
+                subprocess.CompletedProcess([], 0, json.dumps({"tests": [
+                    {"name": "Pass", "command": [str(executable), "--fixture"]}]})),
+                subprocess.CompletedProcess([], 0)
+            ]) as mocked:
+                self.assertEqual(runner.run(Path(temp), True, 2, "Release", report), 0)
+            evidence = json.loads(report.read_text())
+            self.assertTrue(evidence["passed"])
+            self.assertTrue(evidence["buildFirst"])
+            self.assertEqual(evidence["buildExitCode"], 0)
+            self.assertEqual(evidence["results"][0]["executableSha256"], runner.fingerprint(executable))
+            self.assertIn("--config", mocked.call_args_list[0].args[0])
+            self.assertIn("-C", mocked.call_args_list[1].args[0])
+            self.assertIn("-C", mocked.call_args_list[2].args[0])
+
+    def test_failed_build_replaces_old_green_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / "results.json"
+            report.write_text('{"passed":true}')
+            with patch.object(runner.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+                self.assertEqual(runner.run(Path(temp), True, report=report), 1)
+            self.assertFalse(json.loads(report.read_text())["passed"])
+
+    def test_changed_executable_cannot_be_reported_as_passed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "contract"
+            executable.write_bytes(b"the tested binary")
+            def changed_binary(*args, **kwargs):
+                executable.write_bytes(b"a different binary")
+                return subprocess.CompletedProcess([], 0)
+            def fake_run(*args, **kwargs):
+                return (
+                    subprocess.CompletedProcess([], 0, json.dumps({"tests": [
+                        {"name": "Rebuilt", "command": [str(executable)]}]}))
+                    if "--show-only=json-v1" in args[0] else changed_binary(*args, **kwargs))
+            with patch.object(runner.subprocess, "run", side_effect=fake_run):
+                self.assertEqual(runner.run(Path(temp)), 1)
 
 
 if __name__ == "__main__":

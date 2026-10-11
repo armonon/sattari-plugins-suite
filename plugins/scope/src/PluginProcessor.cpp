@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "PluginEditor.h"
 #include <chrono>
 #include <cmath>
@@ -25,7 +26,7 @@ SattariScopeAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "tilt", 1 }, "Spectrum Tilt",
         juce::NormalisableRange<float> (0.0f, 6.0f, 0.1f), 3.0f));   // dB/oct pink-ish tilt
-    p.push_back (std::make_unique<juce::AudioParameterBool> (
+    p.push_back (std::make_unique<sattari::parameters::Bool> (
         juce::ParameterID { "chroma", 1 }, "Pitch-Class Overlay", true));
     return { p.begin(), p.end() };
 }

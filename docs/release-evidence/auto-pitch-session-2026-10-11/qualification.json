@@ -1,0 +1,34 @@
+{
+  "original_commit": "cbd1ce4c8735e649d4d63ec7438c66549a4c52e9",
+  "ported_scope": [
+    "newest legacy session extension restoration, including MIDI mappings",
+    "bounded save/load with no resurrected deleted pitch edits",
+    "persisted Humanize seed and reset walk for reproducible repeated renders",
+    "all per-voice harmony defaults reset when changing factory workflow"
+  ],
+  "not_ported_from_original": [
+    "correction toggle crossfade",
+    "keep whole pitch engine running during host bypass with crossfades"
+  ],
+  "architecture": "arm64",
+  "onnx": false,
+  "optional_signalsmith": true,
+  "print_engine": "Rubber Band",
+  "full_core_contract": "pass",
+  "regressions": {
+    "state_round_trips": 6,
+    "newest_midi_mapping": true,
+    "deleted_notes_remain_deleted": true,
+    "humanize_repeat_prepare_and_reopen": true,
+    "non_silent_render": true,
+    "harmony_pan_level_delay_defaults": true
+  },
+  "native_source_sha256": {
+    "plugins/auto-pitch/src/PluginEditor.cpp": "df55ab834dd01cd2a2672b110a31360ad5937641362d16102cf226ee6e3c25ed",
+    "plugins/auto-pitch/src/PluginProcessor.cpp": "3cd259d9c1b6f344cebe25c78b2d6b2d3cb8c174610a705b933934077b33b7a3",
+    "plugins/auto-pitch/src/PluginProcessor.h": "ca46324e20149ad8e461d0ba7d06e04ff4447b0075eddfd54cf24d1409d8989f",
+    "plugins/auto-pitch/tests/auto_pitch_core_contract.cpp": "5b772fff21f9304826ea8d4d78ac48512c66dc7e311c770fd2081f276dddd320"
+  },
+  "test_binary_sha256": "05c7de98360f4e18ed2441b308c2fe89d7d49617980306b10bcfc315ae2893a2",
+  "distribution": "not published; repository package/host/licensing gates remain"
+}

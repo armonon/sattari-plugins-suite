@@ -60,7 +60,7 @@ SattariMixAudioProcessor::SattariMixAudioProcessor()
 {
     registerFactoryPresets();
     const char* ids[] = { "auto.gain", "auto.low", "auto.presence", "auto.compression",
-                         "auto.threshold", "auto.amount", "auto.enabled", "auto.role", "auto.lock" };
+                         "auto.threshold", "auto.amount", "auto.enabled", "auto.role", "auto.lock", "auto.isBus" };
     for (size_t i = 0; i < controls.size(); ++i) controls[i] = apvts.getRawParameterValue (ids[i]);
     rackParameterCount = getParameters().size() - (int) controls.size();
     label = "Track " + session.id.substring (0, 4);
@@ -79,9 +79,10 @@ void SattariMixAudioProcessor::addAssistParameters (sattari::dsp::SattariModule:
     p.push_back (std::make_unique<F> (juce::ParameterID { "auto.compression", 1 }, "Auto Mix Dynamics", 0.0f, 1.0f, 0.0f));
     p.push_back (std::make_unique<F> (juce::ParameterID { "auto.threshold", 1 }, "Auto Mix Threshold", -48.0f, -6.0f, -18.0f));
     p.push_back (std::make_unique<F> (juce::ParameterID { "auto.amount", 1 }, "Auto Mix Amount", 0.0f, 1.0f, 1.0f));
-    p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "auto.enabled", 1 }, "Auto Mix Enabled", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID { "auto.enabled", 1 }, "Auto Mix Enabled", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "auto.role", 1 }, "Auto Mix Role", sattari::automix::roleNames(), 0));
-    p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "auto.lock", 1 }, "Auto Mix Lock", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID { "auto.lock", 1 }, "Auto Mix Lock", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID { "auto.isBus", 1 }, "Summing Bus Insert", false));
 }
 
 SattariMixAudioProcessor::Settings SattariMixAudioProcessor::assistSettings() const noexcept
@@ -187,6 +188,7 @@ SattariMixAudioProcessor::Track SattariMixAudioProcessor::trackSnapshot() const
     Track t;
     t.id = session.id; t.name = trackName(); t.role = (sattari::automix::Role) (int) controls[7]->load();
     t.locked = controls[8]->load() > 0.5f; t.settings = assistSettings();
+    t.isBus = controls[9]->load() >= .5f;
     t.ack = lastCommand; t.error = commandError;
     if (captureId.isNotEmpty() && publishedCapture.load() == requestedCapture.load())
     {
@@ -247,6 +249,8 @@ void SattariMixAudioProcessor::syncSession()
             else
             {
                 setAssistSettings (after);
+                recordDecision ("Applied: gain " + juce::String (after.gain, 1) + " dB; low " + juce::String (after.low, 1)
+                    + " dB; presence " + juce::String (after.presence, 1) + " dB; dynamics " + juce::String (after.compression * 100, 0) + "%");
                 trimOwner = after.trim < -0.001f ? get (command, "sender").toString() : juce::String();
             }
         }
@@ -270,8 +274,19 @@ void SattariMixAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
         state.setProperty ("autoMixName", label, nullptr);
         state.setProperty ("autoMixCustomName", customLabel, nullptr);
     }
+    { const juce::ScopedLock lock (historyMutex); state.setProperty ("autoMixHistory", history.joinIntoString ("\n"), nullptr); }
     if (auto xml = state.createXml()) copyXmlToBinary (*xml, dest);
 }
+
+void SattariMixAudioProcessor::recordDecision (const juce::String& text)
+{
+    const juce::ScopedLock lock (historyMutex);
+    history.insert (0, juce::Time::getCurrentTime().toISO8601 (true) + "  " + text.replaceCharacters ("\r\n", "  ").substring (0, 2048));
+    while (history.size() > 16) history.remove (history.size() - 1);
+}
+
+juce::String SattariMixAudioProcessor::decisionHistory() const
+{ const juce::ScopedLock lock (historyMutex); return history.joinIntoString ("\n\n"); }
 
 void SattariMixAudioProcessor::setStateInformation (const void* data, int size)
 {
@@ -282,7 +297,7 @@ void SattariMixAudioProcessor::setStateInformation (const void* data, int size)
     // Older sessions have no assistant parameters. Loading one must clear any
     // assistant settings left by a previous session in this processor instance.
     const char* ids[] = { "auto.gain", "auto.low", "auto.presence", "auto.compression", "auto.threshold",
-                         "auto.amount", "auto.enabled", "auto.role", "auto.lock" };
+                         "auto.amount", "auto.enabled", "auto.role", "auto.lock", "auto.isBus" };
     for (const auto* id : ids)
         if (! state.getChildWithProperty ("id", id).isValid())
         {
@@ -297,6 +312,11 @@ void SattariMixAudioProcessor::setStateInformation (const void* data, int size)
         group = state.getProperty ("autoMixGroup").toString().substring (0, 80);
         label = state.getProperty ("autoMixName", "Track " + session.id.substring (0, 4)).toString().substring (0, 80);
         customLabel = (bool) state.getProperty ("autoMixCustomName", false);
+    }
+    {
+        const juce::ScopedLock lock (historyMutex);
+        history = juce::StringArray::fromLines (state.getProperty ("autoMixHistory").toString().substring (0, 34000));
+        history.removeEmptyStrings(); while (history.size() > 16) history.remove (history.size() - 1);
     }
     apvts.replaceState (state); monitorTrim.store (0); joinPending.store (true);
 }

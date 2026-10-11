@@ -23,6 +23,7 @@
 #include <vector>
 
 #if SATTARI_HAS_ONNX
+ #include <sattari_audio_core/SattariOnnxPath.h>
  #include <onnxruntime_cxx_api.h>
 #endif
 
@@ -80,7 +81,8 @@ public:
             opts.SetIntraOpNumThreads (4);
             opts.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
             // On Apple silicon, append the CoreML EP here for acceleration.
-            session = std::make_unique<Ort::Session> (*env, onnxModelPath.c_str(), opts);
+            const auto nativePath = sattari::onnx::nativeModelPath (onnxModelPath);
+            session = std::make_unique<Ort::Session> (*env, nativePath.c_str(), opts);
             return session != nullptr;
         }
         catch (...) { session.reset(); return false; }

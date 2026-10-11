@@ -41,12 +41,18 @@ struct HubProduct: Codable, Sendable {
     let shippingProfile: String?
     let suite: String?
     let suiteRole: String?
+    var portfolioStatus: String? = nil
+
+    var isCurrentInstallCandidate: Bool {
+        shippingProfile != nil && ["active", "specialist"].contains(portfolioStatus ?? "active")
+    }
 }
 
 struct InstallBundle: Codable, Sendable {
     let kind: String
     let relativeSourcePath: String
     let installSubpath: String
+    var expectedVersion: String? = nil
 
     var hasSafePaths: Bool {
         func relative(_ path: String) -> Bool {
@@ -284,12 +290,12 @@ final class HubModel {
         }
         repositoryCandidates.append(repoRoot?.appendingPathComponent(bundle.relativeSourcePath))
 
-        var candidates: [URL?] = repositoryCandidates + [
+        var candidates: [URL?] = [
             Bundle.main.resourceURL?.appendingPathComponent("Payload").appendingPathComponent(bundle.relativeSourcePath),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("Payload")
                 .appendingPathComponent(bundle.relativeSourcePath)
-        ]
+        ] + repositoryCandidates
 
         for root in remotePayloadCandidateRoots() {
             candidates.append(root.appendingPathComponent("Payload").appendingPathComponent(bundle.relativeSourcePath))
@@ -317,6 +323,11 @@ final class HubModel {
         guard url.pathExtension.lowercased() == expectedExtension,
               fileManager.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path) else {
             return false
+        }
+        if let expected = bundle.expectedVersion {
+            guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  plist["CFBundleShortVersionString"] as? String == expected else { return false }
         }
 
         let executableDir = url.appendingPathComponent("Contents/MacOS", isDirectory: true)
@@ -844,7 +855,7 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
         let actionRow = NSStackView()
         actionRow.orientation = .horizontal
         actionRow.spacing = 12
-        let installAll = NSButton(title: "Install Alpha Set", target: self, action: #selector(installAllClicked(_:)))
+        let installAll = NSButton(title: "Install Current Suite", target: self, action: #selector(installAllClicked(_:)))
         installAll.bezelStyle = .rounded
         installAll.keyEquivalent = "\r"
         let updateAll = NSButton(title: "Update All", target: self, action: #selector(updateAllClicked(_:)))
@@ -917,7 +928,7 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
 
     private func card(for suite: HubSuite, members: [HubProduct]) -> NSView {
         let accent = Self.accentColor(suite.accent)
-        let shipping = members.filter { $0.shippingProfile != nil }
+        let shipping = members.filter { $0.isCurrentInstallCandidate }
         let primary = members.first { $0.id == suite.primary }
 
         let box = NSBox()
@@ -966,7 +977,7 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
         copy.addArrangedSubview(name)
 
         let meta = NSTextField(labelWithString:
-            "\(suite.verb.uppercased())  •  \(suite.tier.uppercased())  •  \(members.count) PLUGINS")
+            "\(suite.verb.uppercased())  •  \(suite.tier.uppercased())  •  \(members.filter { !["held", "legacy", "migration-pending"].contains($0.portfolioStatus ?? "active") }.count) COMPONENTS")
         meta.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         meta.textColor = accent
         copy.addArrangedSubview(meta)
@@ -1028,7 +1039,7 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
         row.spacing = 12
         row.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 4)
 
-        let role = product.suiteRole == "primary" ? "PRIMARY" : "COMPONENT"
+        let role = product.suiteRole == "primary" ? "PRIMARY" : (product.portfolioStatus ?? product.suiteRole ?? "component").uppercased()
         let name = NSTextField(labelWithString: product.name)
         name.font = NSFont.systemFont(ofSize: 13, weight: product.suiteRole == "primary" ? .semibold : .regular)
         name.textColor = .white
@@ -1077,7 +1088,7 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
         guard let suiteId = sender.identifier?.rawValue,
               let suite = model.manifest.suite.first(where: { $0.id == suiteId }) else { return }
         let products = model.manifest.products.filter {
-            $0.suite == suiteId && $0.shippingProfile != nil
+            $0.suite == suiteId && $0.isCurrentInstallCandidate
         }
         guard !products.isEmpty else {
             statusLabel.stringValue = "\(suite.name) is still a preview; no install profile is published."
@@ -1087,12 +1098,12 @@ final class HubWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func installAllClicked(_ sender: NSButton) {
-        let alphaSet = model.manifest.products.filter { $0.shippingProfile == "alpha" }
-        guard !alphaSet.isEmpty else {
-            statusLabel.stringValue = "No products are assigned to the curated alpha set."
+        let currentSet = model.manifest.products.filter { $0.isCurrentInstallCandidate }
+        guard !currentSet.isEmpty else {
+            statusLabel.stringValue = "No current products have an install profile."
             return
         }
-        installMany(products: alphaSet, label: "Install Alpha Set")
+        installMany(products: currentSet, label: "Install Current Suite")
     }
 
     @objc private func updateAllClicked(_ sender: NSButton) {
@@ -1278,6 +1289,11 @@ if CommandLine.arguments.contains("--contract-check") {
         guard model.manifest.suite.count == 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected exactly 6 suite products, got \(model.manifest.suite.count)"]) }
         guard productCount >= 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected at least 6 products, got \(productCount)"]) }
         guard model.manifest.products.contains(where: { $0.id == "vocal" }) else { throw NSError(domain: "SattariHub", code: 11, userInfo: [NSLocalizedDescriptionKey: "Missing Vocal product"]) }
+        guard Set(model.manifest.suite.map(\.id)) == Set(["modular", "royal-chain", "auto-pitch", "mix", "tools", "compass"]),
+              model.manifest.products.contains(where: { $0.id == "modular-instrument" }),
+              model.manifest.products.filter({ $0.isCurrentInstallCandidate }).allSatisfy({ $0.suiteRole != "legacy" }) else {
+            throw NSError(domain: "SattariHub", code: 17, userInfo: [NSLocalizedDescriptionKey: "Consolidated portfolio contract failed"])
+        }
         for suite in model.manifest.suite {
             let members = model.manifest.products.filter { $0.suite == suite.id }
             guard !members.isEmpty,
@@ -1288,6 +1304,21 @@ if CommandLine.arguments.contains("--contract-check") {
         guard model.manifest.products.flatMap({ $0.bundles }).contains(where: { $0.kind == "VST3" }) else { throw NSError(domain: "SattariHub", code: 12, userInfo: [NSLocalizedDescriptionKey: "Missing VST3 bundle entry"]) }
         let available = model.manifest.products.filter { model.productIsAvailable($0) }.count
         let downloadable = model.manifest.products.filter { model.productCanDownloadUpdate($0) }.count
+        let current = model.manifest.products.filter { $0.isCurrentInstallCandidate }
+        if CommandLine.arguments.contains("--require-bundled-current") {
+            guard !current.isEmpty, let resources = Bundle.main.resourceURL else {
+                throw NSError(domain: "SattariHub", code: 19, userInfo: [NSLocalizedDescriptionKey: "Missing current bundled suite"])
+            }
+            let payload = resources.appendingPathComponent("Payload").resolvingSymlinksInPath().path + "/"
+            guard current.allSatisfy({ product in
+                product.bundles.allSatisfy { bundle in
+                    guard bundle.expectedVersion != nil, let source = model.sourceURL(for: bundle) else { return false }
+                    return source.resolvingSymlinksInPath().path.hasPrefix(payload)
+                }
+            }) else {
+                throw NSError(domain: "SattariHub", code: 19, userInfo: [NSLocalizedDescriptionKey: "Current suite is incomplete or fell back to development payloads"])
+            }
+        }
         if CommandLine.arguments.contains("--require-online-updates") {
             guard downloadable >= productCount else { throw NSError(domain: "SattariHub", code: 13, userInfo: [NSLocalizedDescriptionKey: "Expected online update archives for all products, got \(downloadable)/\(productCount)"]) }
         }
@@ -1300,7 +1331,7 @@ if CommandLine.arguments.contains("--contract-check") {
                 throw NSError(domain: "SattariHub", code: 15, userInfo: [NSLocalizedDescriptionKey: "Downloaded archive did not expose Auto Pitch payload"])
             }
         }
-        print("SattariHub contract ok: suites=\(model.manifest.suite.count) products=\(productCount) bundles=\(bundleCount) availableProducts=\(available) downloadableProducts=\(downloadable) channel=\(model.manifest.defaultUpdateChannel)")
+        print("SattariHub contract ok: suites=\(model.manifest.suite.count) products=\(productCount) bundles=\(bundleCount) availableProducts=\(available) downloadableProducts=\(downloadable) channel=\(model.manifest.defaultUpdateChannel) currentProducts=\(current.count)")
         exit(0)
     } catch {
         fputs("SattariHub contract failed: \(error.localizedDescription)\n", stderr)

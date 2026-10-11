@@ -17,8 +17,9 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 PRODUCTS = ("FX", "Instrument")
+CONTRACTS = ("ModularFX", "ModularFXHosting", "ModularInstrument", "ModularInstrumentHosting")
 SOURCE_PATHS = ("plugins/modular", "core", "cmake", "assets", "third_party/JUCE", "LICENSE", "LICENSING.md", ".github/workflows/modular-platforms.yml")
 
 
@@ -52,8 +53,8 @@ def run(command, log, timeout=600):
 
 def require_contracts(path):
     cases = ET.parse(path).getroot().findall(".//testcase")
-    if sorted(case.get("name") for case in cases) != ["ModularFX", "ModularInstrument"]:
-        raise ValueError("Expected both native Modular contracts, exactly once")
+    if sorted(case.get("name") for case in cases) != sorted(CONTRACTS):
+        raise ValueError("Expected all four Modular native and hosting contracts, exactly once")
     if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
         raise ValueError("A required native contract failed or was skipped")
 

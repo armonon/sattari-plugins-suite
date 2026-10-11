@@ -42,6 +42,7 @@ inline juce::var encode (const Track& t)
     put (v, "schema", 1); put (v, "id", t.id); put (v, "name", t.name);
     put (v, "capture", t.capture); put (v, "ack", t.ack); put (v, "error", t.error);
     put (v, "role", (int) t.role); put (v, "locked", t.locked); put (v, "settings", encode (t.settings));
+    put (v, "isBus", t.isBus);
     const auto& m = t.measured;
     put (v, "loudness", m.loudness); put (v, "peak", m.peakDb); put (v, "low", m.low);
     put (v, "presence", m.presence); put (v, "crest", m.crest);
@@ -58,6 +59,7 @@ inline Track decodeTrack (const juce::var& v)
     t.capture = get (v, "capture").toString(); t.ack = get (v, "ack").toString();
     t.error = get (v, "error").toString();
     t.role = (Role) (int) number (v, "role", 0, 0, 6); t.locked = (bool) get (v, "locked");
+    t.isBus = (bool) get (v, "isBus");
     t.settings = decodeSettings (get (v, "settings"));
     auto& m = t.measured;
     m.loudness = number (v, "loudness", -100, -100, 40); m.peakDb = number (v, "peak", -100, -100, 40);

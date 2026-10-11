@@ -53,3 +53,13 @@ endforeach()
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariReleaseUIContract.cmake)
 sattari_add_release_ui_contract(SattariMix SattariMixAudioProcessor mix)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_test(NAME MixProduct COMMAND SattariMixProductContract)
+        add_test(NAME MixAssistant COMMAND SattariMixAutoMixContract ${CMAKE_CURRENT_BINARY_DIR}/verification)
+        add_test(NAME MixUI COMMAND SattariMixUIContract ${CMAKE_CURRENT_BINARY_DIR}/ui-verification)
+        set_tests_properties(MixProduct MixAssistant MixUI PROPERTIES TIMEOUT 300 LABELS "product;mix;non-stemdeck")
+    endif()
+endif()

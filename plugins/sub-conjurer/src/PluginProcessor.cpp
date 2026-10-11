@@ -1,9 +1,11 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "PluginEditor.h"
 
 namespace
 {
 constexpr float twoPi = juce::MathConstants<float>::twoPi;
+constexpr int kRealtimeScratchReserve = 8192;
 
 float clampHz (float hz)
 {
@@ -70,7 +72,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubConjurerAudioProcessor::c
     // published by Sattari Key (or any Sattari publisher), so the sub always sits
     // in the current key without manual retuning. Default OFF so the manual Lock
     // Note is authoritative out of the box; the editor greys it while Follow is on.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterInt> ("octave", "Octave", 0, 3, 1));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Sub Amount",
         juce::NormalisableRange<float> (0.0f, 1.5f, 0.001f), 0.9f));
@@ -88,7 +90,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubConjurerAudioProcessor::c
         juce::NormalisableRange<float> (0.030f, 0.800f, 0.001f), 0.180f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiter", "Limiter Ceiling",
         juce::NormalisableRange<float> (0.25f, 0.98f, 0.001f), 0.82f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("subonly", "Sub Only", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("subonly", "Sub Only", false));
 
     return { params.begin(), params.end() };
 }
@@ -100,7 +102,7 @@ void SubConjurerAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     envelopeFollower.prepare (currentSampleRate);
     smoothedHz = 55.0f;
     limiterState = 1.0f;
-    monoScratch.resize ((size_t) juce::jmax (samplesPerBlock, 32));
+    monoScratch.resize ((size_t) juce::jmax (kRealtimeScratchReserve, juce::jmax (samplesPerBlock, 32)));
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
 
     // Shared detector with a long low-frequency window (>= one period down to 25 Hz);
@@ -138,14 +140,12 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
-    if ((int) monoScratch.size() < numSamples)
-        monoScratch.resize ((size_t) numSamples);
-
-    std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
+    const int analysisSamples = juce::jmin (numSamples, (int) monoScratch.size());
+    std::fill (monoScratch.begin(), monoScratch.begin() + analysisSamples, 0.0f);
     for (int ch = 0; ch < numChannels; ++ch)
     {
         const auto* input = buffer.getReadPointer (ch);
-        for (int i = 0; i < numSamples; ++i)
+        for (int i = 0; i < analysisSamples; ++i)
             monoScratch[(size_t) i] += input[i] / (float) numChannels;
     }
 
@@ -162,10 +162,10 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     const bool subOnly = *apvts.getRawParameterValue ("subonly") > 0.5f;
 
     // Feed this block's mono sum into the shared low-frequency pitch detector.
-    pitchDetector.pushBlock (monoScratch.data(), numSamples);
+    pitchDetector.pushBlock (monoScratch.data(), analysisSamples);
 
     // Re-estimate the fundamental on a decimated schedule (analysis is O(window*lags)).
-    analysisAccumulator += numSamples;
+    analysisAccumulator += analysisSamples;
     float wantedHz = smoothedHz;
     if (analysisAccumulator >= analysisHop)
     {
@@ -221,9 +221,13 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const float envelope = envelopeFollower.processRectified (monoScratch[(size_t) i]);
+        float monoIn = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            monoIn += buffer.getReadPointer (ch)[i] / (float) numChannels;
+
+        const float envelope = envelopeFollower.processRectified (monoIn);
         lastEnvelope = envelope;
-        inputPeak = juce::jmax (inputPeak, std::abs (monoScratch[(size_t) i]));
+        inputPeak = juce::jmax (inputPeak, std::abs (monoIn));
 
         smoothedHz += glideCoeff * (targetHz - smoothedHz);
         const float phaseInc = twoPi * smoothedHz / (float) currentSampleRate;
