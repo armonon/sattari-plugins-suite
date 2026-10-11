@@ -1,0 +1,40 @@
+{
+  "source_revision": "14cae6ec122b4953fa1e25b66cbca47e09da8e12",
+  "ports": [
+    {
+      "original": "907043f",
+      "integrated": "0e6848f",
+      "scope": "Unprepared teardown guard and latency-compensated host bypass"
+    },
+    {
+      "original": "c41484c",
+      "integrated": "036df8a",
+      "scope": "Feed dry delay on every processed block so re-engaging bypass does not replay stale audio"
+    }
+  ],
+  "architecture": "arm64",
+  "onnx": false,
+  "print_engine": "Rubber Band",
+  "optional_signalsmith_builds": [
+    false,
+    true
+  ],
+  "teardown_instances_per_run": 8,
+  "bypass_blocks": [
+    64,
+    512
+  ],
+  "full_core_contract_runs": 2,
+  "final_binary_sha256": "c2cb2d7b633932b5c4116ccc6f1176755066b4db41d77f8391bcaabec357981d",
+  "code_sha256": {
+    "plugins/auto-pitch/src/PluginProcessor.cpp": "fdbc87648a18011dca7ebdc8f8fa47a58a733d217a67d0b5dd3a99706cab9120",
+    "plugins/auto-pitch/src/PluginProcessor.h": "e211936b4bcc4733dda077f72692e8caf6e4fcd8f44f3133b8872e02f93c2fd9",
+    "plugins/auto-pitch/tests/auto_pitch_core_contract.cpp": "37d158f446b10048c4197b7abc10f97a26b8631b84a545b6d8c5017ea63ee209"
+  },
+  "limitations": [
+    "No native installer published",
+    "No Windows, Intel Auto Pitch, DAW or listening acceptance asserted",
+    "Rubber Band remains the print engine; optional Signalsmith compilation exercises the teardown guard but does not qualify Signalsmith print output",
+    "Remaining older Auto Pitch fixes need selective review and ports"
+  ]
+}
