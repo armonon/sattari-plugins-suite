@@ -1,0 +1,81 @@
+{
+  "repository": "armonon/tracktion_engine",
+  "current_develop": "494e91d2ff546353b69723a5e992dd71d1a0204b",
+  "older_patch": "5e60a06655ca8a63ac48a6038a0d5d3a09a7d48f",
+  "decision": "All nine JUCE compatibility paths are already adapted on current develop. Preserve newer upstream; no old patch port needed. No engine runtime qualification claimed.",
+  "checks": [
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.h",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions&) override;"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.cpp",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions& options)",
+        "const juce::AudioFormatWriterOptions& options)"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.h",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions&) override;"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.cpp",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions& opts)"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.h",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions&) override;"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.cpp",
+      "compatibility": "AudioFormatWriterOptions",
+      "present": true,
+      "lines": [
+        "const juce::AudioFormatWriterOptions&)"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp",
+      "compatibility": "getARGB()",
+      "present": true,
+      "lines": [
+        "pi->updateTrackProperties ({ t->getName(), t->getColour().getARGB() });"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/plugins/tracktion_PluginManager.cpp",
+      "compatibility": "addDefaultFormatsToManager",
+      "present": true,
+      "lines": [
+        "juce::addDefaultFormatsToManager (pluginFormatManager);"
+      ]
+    },
+    {
+      "path": "modules/tracktion_engine/plugins/tracktion_PluginScanHelpers.h",
+      "compatibility": "addDefaultFormatsToManager",
+      "present": true,
+      "lines": [
+        "juce::addDefaultFormatsToManager (pluginFormatManager);"
+      ]
+    }
+  ]
+}
