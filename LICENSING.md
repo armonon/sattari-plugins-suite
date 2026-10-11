@@ -2,6 +2,23 @@
 
 ## Distribution Is Pending Review
 
+### Owner direction recorded October 11, 2026
+
+The owner confirmed: **"Open-source distribution is planned"** and authorized
+signing and notarizing the Mac packages. Preparation therefore follows the
+open-source dependency path: JUCE's AGPLv3 option and Rubber Band's
+GPLv2-or-later option where linked. No commercial-license entitlement is claimed.
+The project's existing GPLv3 text and each dependency's separate terms remain
+intact. GPLv3 section 13 explicitly permits combination with AGPLv3 while
+retaining the respective terms; this record is not a completed distribution review.
+
+For every released binary, provide complete matching corresponding source,
+build scripts, dependency revisions and applicable notices alongside the binary.
+Check optional runtimes, models and SDKs against the exact enabled build rather
+than assuming one inventory covers all products. The current Modular candidate
+has ONNX disabled. Public distribution remains subject to these artifact-specific
+checks and the native acceptance gates in `docs/launch-readiness.md`.
+
 The repository's `LICENSE` currently contains GPLv3. It has not been changed.
 The earlier statement that GPLv3 alone covers the pinned JUCE version was
 incorrect: `third_party/JUCE/LICENSE.md` describes JUCE 8 modules as dual-licensed
