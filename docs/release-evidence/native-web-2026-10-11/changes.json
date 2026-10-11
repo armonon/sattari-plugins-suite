@@ -1,0 +1,14 @@
+[
+  {
+    "path": "/index.html",
+    "old_manifest_sha1": "ad2e92a080a86a91ff832a5f2fc23a1f2f24430f",
+    "old_served_sha1": "42a50b62fd29b16a32137af342f3b7b3ed3d7cdf",
+    "new_sha1": "aa3e8829577f55000680b6380b454e436a1ac4b0"
+  },
+  {
+    "path": "/modular.html",
+    "old_manifest_sha1": "983be7e31c9b06b025614f232eead79ee636f869",
+    "old_served_sha1": "083aec4babc04a643bc0bd8754f2b7211dac55b3",
+    "new_sha1": "f105003a48b9b57f9bba10aadc233251f0eda920"
+  }
+]

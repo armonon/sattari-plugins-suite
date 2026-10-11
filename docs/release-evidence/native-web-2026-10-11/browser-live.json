@@ -1,0 +1,56 @@
+[
+  {
+    "path": "/",
+    "width": 1280,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  },
+  {
+    "path": "/modular.html",
+    "width": 1280,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  },
+  {
+    "path": "/",
+    "width": 390,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  },
+  {
+    "path": "/modular.html",
+    "width": 390,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  },
+  {
+    "path": "/",
+    "width": 320,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  },
+  {
+    "path": "/modular.html",
+    "width": 320,
+    "status": 200,
+    "company_navigation": true,
+    "overflow": false,
+    "page_errors": 0,
+    "pass": true
+  }
+]
