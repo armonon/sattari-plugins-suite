@@ -28,3 +28,8 @@ plugin-scanning paths use the updated APIs. The old patch needs no additional
 port. This source review does not qualify a native engine release.
 
 Digital Human is excluded at the user's request.
+
+The default branch still contains the earlier 0.1.1 marketing page. This source
+follow-up adds navigation and the fresh-capture preparer without attributing
+0.2.0 qualification to 0.1.1. Current 0.2.0 consolidated native source remains
+in PR 5. The hosted status update applies to the current 0.2.0 page only.
