@@ -1,0 +1,62 @@
+  harmonyUpgrade legacy state clears previously edited formant parameter PASS
+  harmonyUpgrade legacy state clears previously edited formant parameter PASS
+  harmonyUpgrade legacy state clears previously edited formant parameter PASS
+  harmonyUpgrade legacy state clears previously edited formant parameter PASS
+  harmonyUpgrade old note states default to automatic harmony PASS
+  harmonyUpgrade independent H1 pitch leaves lead untouched PASS
+  harmonyUpgrade harmony pitch participates in undo/redo PASS
+  harmonyUpgrade invalid harmony edits rejected PASS
+  harmonyUpgrade project recall restores note overrides and formants PASS
+  harmonyUpgrade repeated saves replace old graph/key-map snapshots PASS
+  harmonyUpgrade split retains harmony targets PASS
+  harmonyUpgrade formants excluded from live latency path PASS
+  harmonyUpgrade audio-owned readout reports overridden H1 PASS
+  harmonyUpgrade overridden H1 reaches actual audio output PASS
+  harmonyUpgrade expired graph override returns to automatic third PASS
+  harmonyUpgrade large lead edits fold against source range; audio and graph retain E, not clipped A PASS
+  harmonyUpgrade Studio has sufficient alignment for formants PASS
+  harmonyUpgrade Poly cannot advertise vocal formants PASS
+  harmonyUpgrade harmony workspace opens at minimum size PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade harmony workspace opens at minimum size PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade formant slider fits minimum layout and reflects active engine PASS
+  harmonyUpgrade timeline drag edits H1 without moving lead PASS
+  harmonyUpgrade timeline drag is one reversible gesture PASS
+  harmonyUpgrade shift-click mutes harmony region PASS
+  harmonyUpgrade right-click restores generated harmony PASS
+    bypass harmony profile=0 correctionOff=1 targetPower=1.39363e+06 sourcePower=201.717
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+    bypass harmony profile=0 correctionOff=0 targetPower=1.39363e+06 sourcePower=201.717
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+    bypass harmony profile=1 correctionOff=1 targetPower=1.20168e+06 sourcePower=280.343
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+    bypass harmony profile=1 correctionOff=0 targetPower=1.20168e+06 sourcePower=280.343
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+    bypass harmony profile=2 correctionOff=1 targetPower=1.20128e+06 sourcePower=15.92
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+    bypass harmony profile=2 correctionOff=0 targetPower=1.20128e+06 sourcePower=15.92
+  harmonyUpgrade Live harmony remains pitched with lead correction off or Amount zero PASS
+  factoryWorkflows=PASS (deterministic mode reset + calibrated Natural)
+  graphObjectEditing=PASS (split/join/delete, object controls, undo/redo)
+  liveGraphTarget=PASS (exact target + release + fused guidance)
+  harmonyRenderer=PASS (4 target notes, 64/512 continuity, max boundary jump 0.00361341)
+  harmonyIntegration=PASS (H1 C4 audible + readout matched; bank switch clean)
+  liveProfiles=PASS (Extreme 96, Ultra 571, Range 1037 smp @ 48 kHz)
+  extremeAcquisition=PASS (voiced 12 ms, >=50 ct correction 16 ms)
+  graphTimeLatency=PASS (24000 samples reported at 48 kHz)
+  bypassReengage=PASS (dry input delayed by latency at every sample, 64 + 512)
+  noiseRobustness=PASS (tracked A3 through 2nd-harmonic + broadband noise)
+  autoKeyGate=tonal 0.326785 >= 0.1 > noise 0 (manual fallback retained)
+  dynamicKeyFollow=PASS (C major -> G minor, margins preserved)
+Auto Pitch core contract ok
+  status=Studio HQ   ·   YIN   ·   C major   ·   Modern Rap   ·   A3 → A3   ·   -35.0 ct   ·   99.9945%
+  keyTab=Key   C major   ·   100% confidence   ·   Manual
+  changedEnergy=10.0154
+  modes=Natural, Classic, Modern Rap, Robot, Big Harmony
+  engine=rubberband
