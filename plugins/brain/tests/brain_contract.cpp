@@ -268,7 +268,6 @@ int main (int argc, char** argv)
             proc.processBlock (buf, midi);
         }
         proc.requestRescan();
-        proc.analyseNow();
         sattari::xplugin::SessionMessage m;
         const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
         {
