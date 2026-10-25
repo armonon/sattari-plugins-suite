@@ -55,6 +55,7 @@ public:
     UiState currentUiState() const noexcept { return uiState.load(); }
 
 private:
+    friend struct SubConjurerScratchProbe; // Contract-only observation; no runtime behavior.
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void registerFactoryPresets();
 

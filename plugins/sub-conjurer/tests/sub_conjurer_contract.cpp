@@ -3,6 +3,7 @@
 // non-silent SUB-band tone (not mid content), and (2) stays quiet on silence
 // (the envelope gate closes — no runaway self-oscillation).
 #include "PluginProcessor.h"
+#include "sub_conjurer_analysis_regressions.h"
 #include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
@@ -85,7 +86,7 @@ int main (int argc, char** argv)
         return ok ? 0 : 1;
     }
     const double sr = 48000.0;
-    int fails = 0;
+    int fails = runSubConjurerAnalysisRegressions();
 
     // 1) Feed a sustained 60 Hz tone -> a synthesized, bounded, SUB-band tone.
     double peak = 0.0;
