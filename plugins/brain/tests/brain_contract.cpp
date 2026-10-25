@@ -32,7 +32,8 @@ void setParam (juce::AudioProcessorValueTreeState& a, const juce::String& id, fl
 
 // Poll the bus until `pred(msg)` holds or we time out. Returns the last-read
 // message (so callers can assert on it) and whether the predicate was met.
-bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMessage&)>& pred,
+bool waitForSession (SattariBrainAudioProcessor& processor,
+                     const std::function<bool (const sattari::xplugin::SessionMessage&)>& pred,
                      sattari::xplugin::SessionMessage& out, int timeoutMs = 6000)
 {
     const int stepMs = 50;
@@ -45,6 +46,15 @@ bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMe
         }
         std::this_thread::sleep_for (std::chrono::milliseconds (stepMs));
     }
+    const auto detected = processor.detected();
+    auto& parameters = processor.parameters();
+    std::fprintf (stderr,
+        "Publication timeout: completedAttempts=%u lastResult=%s publish=%g manual=%g detectedValid=%d confidence=%g\n",
+        processor.publicationAttemptCount(),
+        sattari::xplugin::sessionPublishResultName (processor.lastPublicationResult()),
+        (double) parameters.getRawParameterValue ("brainPublish")->load(),
+        (double) parameters.getRawParameterValue ("brainManual")->load(),
+        (int) detected.valid, detected.confidence);
     return false;
 }
 } // namespace
@@ -137,6 +147,9 @@ int main (int argc, char** argv)
     };
 
     SattariBrainAudioProcessor proc;
+    check (proc.publicationAttemptCount() == 0
+               && proc.lastPublicationResult() == sattari::xplugin::SessionPublishResult::notAttempted,
+           "constructor unexpectedly attempted publication");
     auto& a = proc.parameters();
     const double sr = 48000.0; const int block = 512;
     proc.prepareToPlay (sr, block);
@@ -194,7 +207,7 @@ int main (int argc, char** argv)
     setParam (a, "brainMaqam",        5.0f);
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.chordRoot == 9 && s.chordQuality == 4
                 && s.timeSigNum == 6 && s.timeSigDen == 8
@@ -236,7 +249,7 @@ int main (int argc, char** argv)
             proc.processBlock (buf, midi);
         }
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([priorTransient] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [priorTransient] (const sattari::xplugin::SessionMessage& s)
         {
             return s.transientId > priorTransient && s.energy > 0.1f;
         }, m);
@@ -269,7 +282,7 @@ int main (int argc, char** argv)
         }
         proc.requestRescan();
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.chordRoot == 0 && s.chordQuality == 1;
         }, m);
@@ -282,7 +295,7 @@ int main (int argc, char** argv)
     setParam (a, "brainManualScale", 1.0f);   // minor
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.root == 7 && s.scale == 1;
         }, m);
@@ -294,7 +307,7 @@ int main (int argc, char** argv)
     setParam (a, "brainReferenceHz", 432.0f);
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return std::abs (s.referenceHz - 432.0) < 0.5;
         }, m);

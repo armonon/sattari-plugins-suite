@@ -100,6 +100,13 @@ public:
     };
     Detected detected() const noexcept;
 
+    // Last completed bus attempt. Gated/off publication does not manufacture
+    // an attempt; the contract also reports the raw gate values on timeout.
+    sattari::xplugin::SessionPublishResult lastPublicationResult() const noexcept
+    { return publicationResult.load (std::memory_order_relaxed); }
+    unsigned int publicationAttemptCount() const noexcept
+    { return publicationAttempts.load (std::memory_order_relaxed); }
+
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 
 private:
@@ -142,6 +149,9 @@ private:
     std::atomic<int> songKeyFrames { 0 };          // frames the estimator has analysed
 
     // Detection readout (audio/worker -> UI), all lock-free.
+    std::atomic<sattari::xplugin::SessionPublishResult> publicationResult {
+        sattari::xplugin::SessionPublishResult::notAttempted };
+    std::atomic<unsigned int> publicationAttempts { 0 };
     std::atomic<int>    detRoot { 0 };
     std::atomic<bool>   detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
     std::atomic<double> detConf { 0.0 };

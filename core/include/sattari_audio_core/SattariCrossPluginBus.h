@@ -105,19 +105,21 @@ inline juce::String effectiveSessionId (const juce::String& requestedSessionId)
                                            : configuredSessionId();
 }
 
-inline juce::File crossPluginBusRoot()
+inline juce::File crossPluginBusRoot (juce::Result* creationResult = nullptr)
 {
     auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                     .getChildFile ("Sattari Audio").getChildFile ("cross-plugin");
-    root.createDirectory();
+    const auto result = root.createDirectory();
+    if (creationResult != nullptr) *creationResult = result;
     return root;
 }
 
-inline juce::File keyBusFile (const juce::String& requestedSessionId = {})
+inline juce::File keyBusFile (const juce::String& requestedSessionId = {},
+                              juce::Result* creationResult = nullptr)
 {
     const auto sessionId = effectiveSessionId (requestedSessionId);
     const auto suffix = sessionId.isEmpty() ? juce::String() : "-" + sessionId;
-    return crossPluginBusRoot().getChildFile ("key-bus" + suffix + ".json");
+    return crossPluginBusRoot (creationResult).getChildFile ("key-bus" + suffix + ".json");
 }
 
 inline bool publishKey (const juce::String& publisherId, int root, int scale,
@@ -228,19 +230,46 @@ inline bool publishSession (const juce::String& publisherId, int root, int scale
     return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
+// Worker-thread diagnostics. Do not log paths, session IDs or exception text.
+// A failed write is a stage result, not proof of a permission denial.
+enum class SessionPublishResult
+{
+    notAttempted,
+    published,
+    lockUnavailable,
+    leaseRejected,
+    directoryUnavailable,
+    writeFailed
+};
+
+inline const char* sessionPublishResultName (SessionPublishResult result) noexcept
+{
+    switch (result)
+    {
+        case SessionPublishResult::notAttempted:         return "not-attempted";
+        case SessionPublishResult::published:            return "published";
+        case SessionPublishResult::lockUnavailable:      return "lock-unavailable";
+        case SessionPublishResult::leaseRejected:        return "lease-rejected";
+        case SessionPublishResult::directoryUnavailable: return "directory-unavailable";
+        case SessionPublishResult::writeFailed:          return "write-failed";
+    }
+    return "unknown";
+}
+
 // Full SessionState publisher (the Compass path). Writes every field; base-field-only
 // readers ignore the extras, SessionState readers pick up whatever is present.
-inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s,
+inline SessionPublishResult publishSessionStateDetailed (const juce::String& publisherId, const SessionMessage& s,
                                  const juce::String& requestedSessionId = {},
                                  const juce::String& ownerToken = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
-    if (! publishLock.isLocked()) return false;
+    if (! publishLock.isLocked()) return SessionPublishResult::lockUnavailable;
     const auto sessionId = effectiveSessionId (
         requestedSessionId.isNotEmpty() ? requestedSessionId : s.sessionId);
-    const auto file = keyBusFile (sessionId);
+    auto directoryResult = juce::Result::ok();
+    const auto file = keyBusFile (sessionId, &directoryResult);
     if (! mayPublish (file, publisherId))
-        return false;
+        return SessionPublishResult::leaseRejected;
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("schemaVersion", 3);
@@ -267,7 +296,21 @@ inline bool publishSessionState (const juce::String& publisherId, const SessionM
     obj->setProperty ("keyWindowSeconds", juce::jmax (0.0, s.keyWindowSeconds));
     if (s.progression.isNotEmpty()) obj->setProperty ("progression", s.progression);
     obj->setProperty ("timestampMs", currentTimeMs());
-    return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
+    if (file.replaceWithText (juce::JSON::toString (juce::var (obj))))
+        return SessionPublishResult::published;
+    // Preserve the original write attempt/order. Report the directory result
+    // only after a failed write; no new path, fallback, or permission probe.
+    return directoryResult.failed() ? SessionPublishResult::directoryUnavailable
+                                    : SessionPublishResult::writeFailed;
+}
+
+// Preserve the existing bool API and success semantics for all suite callers.
+inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s,
+                                 const juce::String& requestedSessionId = {},
+                                 const juce::String& ownerToken = {})
+{
+    return publishSessionStateDetailed (publisherId, s, requestedSessionId, ownerToken)
+           == SessionPublishResult::published;
 }
 
 // Remove a session frame only when it still belongs to this publisher. This is
