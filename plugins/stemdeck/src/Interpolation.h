@@ -18,10 +18,12 @@ namespace stemdeck
 inline float readLinear (const juce::AudioBuffer<float>& audio, int channel, double position) noexcept
 {
     const int numSamples = audio.getNumSamples();
-    if (numSamples <= 1)
+    const int numChannels = audio.getNumChannels();
+    if (numSamples <= 0 || numChannels <= 0 || !std::isfinite (position))
         return 0.0f;
 
-    const int c  = juce::jlimit (0, audio.getNumChannels() - 1, channel);
+    const int c  = juce::jlimit (0, numChannels - 1, channel);
+    position = juce::jlimit (0.0, (double) (numSamples - 1), position);
     const int i0 = juce::jlimit (0, numSamples - 1, (int) position);
     const int i1 = juce::jmin (i0 + 1, numSamples - 1);
     const float frac = (float) (position - (double) i0);
@@ -66,10 +68,16 @@ public:
     float read (const juce::AudioBuffer<float>& audio, int channel, double position) const noexcept
     {
         const int numSamples = audio.getNumSamples();
-        if (numSamples <= 1)
+        const int numChannels = audio.getNumChannels();
+        if (numSamples <= 0 || numChannels <= 0 || !std::isfinite (position))
             return 0.0f;
 
-        const int    c    = juce::jlimit (0, audio.getNumChannels() - 1, channel);
+        const int    c    = juce::jlimit (0, numChannels - 1, channel);
+        if (numSamples == 1)
+            return audio.getSample (c, 0);
+        // Clamp before floor/cast: invalid or overshooting transport positions
+        // must not extrapolate, overflow an integer, or contaminate audio.
+        position = juce::jlimit (0.0, (double) (numSamples - 1), position);
         const int    i0   = (int) std::floor (position);
         const double frac = position - (double) i0;
         int ph = (int) (frac * (double) numPhases);
