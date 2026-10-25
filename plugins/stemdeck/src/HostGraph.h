@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include "ComponentStoragePolicy.h"
 
 // Standalone-first plugin host graph. The graph is intentionally separate from
 // DeckPlayer so plugin scanning/instantiation can happen off the audio path and
@@ -31,6 +32,7 @@ public:
     using LoadCallback = std::function<void(bool success, juce::String message)>;
 
     HostGraph();
+    explicit HostGraph (ComponentStoragePolicy);
     ~HostGraph();
 
     void prepare (double sampleRate, int blockSize, int channels);
@@ -71,7 +73,9 @@ private:
     const ChainState& stateFor (Chain chain) const;
     void initialiseGraph (ChainState& state);
     bool standaloneHostingEnabled() const noexcept;
+    juce::File hostDataDirectory() const;
 
+    const ComponentStoragePolicy storagePolicy;
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPluginList;
     std::array<ChainState, (size_t) Chain::count> chains;

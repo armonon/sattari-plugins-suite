@@ -3,9 +3,11 @@
 #include <JuceHeader.h>
 #include <array>
 #include <map>
+#include <memory>
 #include "DeckPlayer.h"
 #include "RoadmapAdapters.h"
 #include "NeuralStemEngine.h"
+#include "ComponentStoragePolicy.h"
 
 // Offline-first AI stem provider. It never separates in processBlock: requests run
 // on a ThreadPool, results are cached on disk, and decks atomically swap buffers
@@ -47,10 +49,15 @@ public:
     using Callback = std::function<void(Result)>;
 
     StemProvider();
+    explicit StemProvider (ComponentStoragePolicy);
     ~StemProvider() override;
 
     juce::String getName() const override { return "StemDeck offline cached StemProvider"; }
-    bool isAvailable() const override { return true; }
+    bool isAvailable() const override
+    {
+        return ! storagePolicy.isRestricted()
+            || (cacheRoot != juce::File() && storagePolicy.permitsPath (cacheRoot) && cacheRoot.isDirectory());
+    }
 
     void setCacheRoot (const juce::File& root);
     juce::File getCacheRoot() const;
@@ -61,7 +68,7 @@ public:
     void requestStemsAsync (const juce::File& sourceFile, Callback callback);
     Result inspectCache (const juce::File& sourceFile) const;
     Status getStatusForSource (const juce::File& sourceFile) const;
-    static bool runSeparatorCommand (const juce::String& command, const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
+    bool runSeparatorCommand (const juce::String& command, const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
 
     // On-device neural separation (ONNX Runtime). Writes the 4 core-stem WAVs into
     // cacheDirectory. Preferred over the CLI when a model is loaded. Returns false
@@ -82,9 +89,11 @@ private:
     // the model can't be loaded, letting the caller fall back to the demucs CLI.
     bool ensureNeuralModelLoaded (juce::String& message);
 
+    const ComponentStoragePolicy storagePolicy;
     juce::File cacheRoot;
     juce::String separatorCommand;
-    NeuralStemEngine neuralEngine;
+    // Restricted instances must not construct an ONNX-enabled engine/OrtEnv.
+    std::unique_ptr<NeuralStemEngine> neuralEngine;
     juce::CriticalSection neuralLoadLock;
     bool neuralLoadAttempted = false;   // guarded by neuralLoadLock
     juce::ThreadPool pool { 2 };

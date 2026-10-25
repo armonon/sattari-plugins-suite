@@ -276,6 +276,14 @@ target_link_libraries(StemDeckResamplerTest
             juce::juce_recommended_warning_flags)
 
 # ── Header-level resampling safety (no plugin or model runtime required) ──────
+add_executable(StemDeckComponentStoragePolicy EXCLUDE_FROM_ALL
+    tests/stemdeck_component_storage_policy.cpp)
+target_include_directories(StemDeckComponentStoragePolicy PRIVATE src)
+target_compile_definitions(StemDeckComponentStoragePolicy PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckComponentStoragePolicy PRIVATE
+    juce::juce_core juce::juce_recommended_config_flags)
+
 add_executable(StemDeckInterpolationBoundaries EXCLUDE_FROM_ALL
     tests/stemdeck_interpolation_boundaries.cpp)
 target_include_directories(StemDeckInterpolationBoundaries PRIVATE src)
