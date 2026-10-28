@@ -78,17 +78,24 @@ void SattariTunerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int numCh = buffer.getNumChannels();
     const int n     = buffer.getNumSamples();
 
-    // Mono-sum into the preallocated scratch for detection (audio is untouched).
-    if ((int) monoScratch.size() < n)
-        monoScratch.assign ((size_t) n, 0.0f);
-    for (int i = 0; i < n; ++i)
+    // Hosts may exceed the block-size estimate passed to prepareToPlay.
+    // Feed all input through bounded scratch chunks without growing on the
+    // audio thread. Analysis still happens once, after the whole callback.
+    float fallback = 0.0f;
+    float* const scratch = monoScratch.empty() ? &fallback : monoScratch.data();
+    const int capacity = monoScratch.empty() ? 1 : (int) monoScratch.size();
+    for (int offset = 0; offset < n;)
     {
-        float s = 0.0f;
-        for (int ch = 0; ch < numCh; ++ch) s += buffer.getReadPointer (ch)[i];
-        monoScratch[(size_t) i] = (numCh > 0) ? s / (float) numCh : 0.0f;
+        const int chunk = juce::jmin (n - offset, capacity);
+        for (int i = 0; i < chunk; ++i)
+        {
+            float s = 0.0f;
+            for (int ch = 0; ch < numCh; ++ch) s += buffer.getReadPointer (ch)[offset + i];
+            scratch[i] = (numCh > 0) ? s / (float) numCh : 0.0f;
+        }
+        detector.pushBlock (scratch, chunk);
+        offset += chunk;
     }
-
-    detector.pushBlock (monoScratch.data(), n);
     const auto r = detector.analyse (0.3f);
 
     const double refA      = (double) param ("referenceA");

@@ -76,6 +76,8 @@ public:
     static juce::String noteName (int midiNote); // e.g. 69 -> "A4"
 
 private:
+    // The contract observes scratch ownership without exposing it to hosts.
+    friend struct TunerScratchContractAccess;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
 

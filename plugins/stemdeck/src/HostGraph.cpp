@@ -10,19 +10,32 @@ juce::StringArray pluginNamesForLog (const juce::Array<juce::PluginDescription>&
     return names;
 }
 
-juce::File hostDataDirectory()
+}
+
+juce::File HostGraph::hostDataDirectory() const
 {
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+    if (storagePolicy.isRestricted() && ! storagePolicy.isValid())
+        return {};
+    auto dir = storagePolicy.isRestricted()
+             ? storagePolicy.root().getChildFile ("HostGraph")
+             : juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                    .getChildFile ("Sattari")
                    .getChildFile ("StemDeck")
                    .getChildFile ("HostGraph");
-    dir.createDirectory();
+    if (! storagePolicy.permitsPath (dir) || dir.createDirectory().failed())
+        return {};
     return dir;
 }
-}
 
-HostGraph::HostGraph()
+HostGraph::HostGraph() : HostGraph (ComponentStoragePolicy::production()) {}
+
+HostGraph::HostGraph (ComponentStoragePolicy policy) : storagePolicy (std::move (policy))
 {
+    if (storagePolicy.isRestricted())
+    {
+        loadCache();
+        return; // Never register/discover system plugin formats in a fixture.
+    }
     // Current JUCE API: do not use deprecated AudioPluginFormatManager::addDefaultFormats().
 #if JucePlugin_Build_Standalone
     juce::addDefaultFormatsToManager (formatManager);
@@ -159,6 +172,9 @@ juce::StringArray HostGraph::getSupportedPluginFormats() const
 
 juce::String HostGraph::getStatusSummary() const
 {
+    if (storagePolicy.isRestricted())
+        return storagePolicy.isValid() ? "HostGraph restricted fixture; external plugins disabled"
+                                       : "HostGraph restricted fixture rejected: invalid storage root";
     auto formats = getSupportedPluginFormats();
     juce::String text = standaloneHostingEnabled()
         ? "Standalone HostGraph ready"
@@ -181,13 +197,17 @@ juce::Array<juce::PluginDescription> HostGraph::getKnownPlugins() const
 
 juce::File HostGraph::getCacheFile() const
 {
-    return hostDataDirectory().getChildFile ("known-plugins.xml");
+    const auto directory = hostDataDirectory();
+    if (directory == juce::File())
+        return {};
+    const auto file = directory.getChildFile ("known-plugins.xml");
+    return storagePolicy.permitsPath (file) ? file : juce::File();
 }
 
 bool HostGraph::loadCache()
 {
     auto cache = getCacheFile();
-    if (! cache.existsAsFile())
+    if (cache == juce::File() || ! cache.existsAsFile())
         return false;
 
     std::unique_ptr<juce::XmlElement> xml (juce::XmlDocument::parse (cache));
@@ -200,8 +220,11 @@ bool HostGraph::loadCache()
 
 bool HostGraph::saveCache() const
 {
+    const auto cache = getCacheFile();
+    if (cache == juce::File())
+        return false;
     if (auto xml = knownPluginList.createXml())
-        return xml->writeTo (getCacheFile());
+        return xml->writeTo (cache);
     return false;
 }
 
@@ -215,14 +238,23 @@ juce::AudioPluginFormat* HostGraph::findFormatByName (const juce::String& format
 
 juce::File HostGraph::getDeadMansPedalFileForFormat (const juce::String& formatName) const
 {
+    const auto directory = hostDataDirectory();
+    if (directory == juce::File())
+        return {};
     auto safeName = formatName.retainCharacters ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ")
                               .trim().replaceCharacter (' ', '-');
-    return hostDataDirectory().getChildFile (safeName + "-dead-mans-pedal.txt");
+    const auto file = directory.getChildFile (safeName + "-dead-mans-pedal.txt");
+    return storagePolicy.permitsPath (file) ? file : juce::File();
 }
 
 HostGraph::ScanResult HostGraph::scanDefaultLocations (int maxPluginsPerFormat, bool recursive)
 {
     ScanResult result;
+    if (storagePolicy.isRestricted())
+    {
+        result.messages.add ("External plugin scanning is disabled in restricted fixtures.");
+        return result;
+    }
 
     for (auto* format : formatManager.getFormats())
     {
@@ -245,11 +277,17 @@ HostGraph::ScanResult HostGraph::scanDefaultLocations (int maxPluginsPerFormat, 
             continue;
         }
 
+        const auto pedalFile = getDeadMansPedalFileForFormat (formatName);
+        if (pedalFile == juce::File())
+        {
+            result.messages.add (formatName + ": scan stopped; host metadata directory unavailable.");
+            break;
+        }
         juce::PluginDirectoryScanner scanner (knownPluginList,
                                               *format,
                                               searchPath,
                                               recursive,
-                                              getDeadMansPedalFileForFormat (formatName),
+                                              pedalFile,
                                               true);
 
         juce::String currentlyScanning;
@@ -275,6 +313,12 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
                                         const juce::PluginDescription& description,
                                         LoadCallback callback)
 {
+    if (storagePolicy.isRestricted())
+    {
+        if (callback)
+            callback (false, "External plugin loading is disabled in restricted fixtures.");
+        return;
+    }
     const auto target = chain;
     formatManager.createPluginInstanceAsync (description, currentSampleRate, currentBlockSize,
         [this, target, completion = std::move (callback), requestedName = description.name]

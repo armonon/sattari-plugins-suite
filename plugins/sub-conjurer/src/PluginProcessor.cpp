@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "SubConjurerAnalysisFeed.h"
 #include "PluginEditor.h"
 
 namespace
@@ -138,16 +139,6 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
-    if ((int) monoScratch.size() < numSamples)
-        monoScratch.resize ((size_t) numSamples);
-
-    std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-        const auto* input = buffer.getReadPointer (ch);
-        for (int i = 0; i < numSamples; ++i)
-            monoScratch[(size_t) i] += input[i] / (float) numChannels;
-    }
 
     const int mode = (int) *apvts.getRawParameterValue ("mode");
     const int tuning = (int) *apvts.getRawParameterValue ("tuning");
@@ -162,10 +153,17 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     const bool subOnly = *apvts.getRawParameterValue ("subonly") > 0.5f;
 
     // Feed this block's mono sum into the shared low-frequency pitch detector.
-    pitchDetector.pushBlock (monoScratch.data(), numSamples);
+    // Host callbacks may exceed the prepareToPlay estimate. Consume all input in
+    // bounded chunks without growing storage on the audio thread.
+    sattari::subconjurer::feedPitchInput (buffer.getArrayOfReadPointers(), numChannels, numSamples,
+                                        monoScratch.data(), (int) monoScratch.size(), pitchDetector);
 
     // Re-estimate the fundamental on a decimated schedule (analysis is O(window*lags)).
-    analysisAccumulator += numSamples;
+    // Saturate at the hop to avoid overflow for an oversized callback.
+    if (numSamples >= analysisHop - analysisAccumulator)
+        analysisAccumulator = analysisHop;
+    else
+        analysisAccumulator += numSamples;
     float wantedHz = smoothedHz;
     if (analysisAccumulator >= analysisHop)
     {
@@ -221,9 +219,15 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const float envelope = envelopeFollower.processRectified (monoScratch[(size_t) i]);
+        // The analysis scratch now holds only the last chunk. Read this frame's
+        // original channels before writing any output, preserving the previous
+        // mono sum and envelope for the whole callback.
+        float monoInput = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            monoInput += buffer.getReadPointer (ch)[i] / (float) numChannels;
+        const float envelope = envelopeFollower.processRectified (monoInput);
         lastEnvelope = envelope;
-        inputPeak = juce::jmax (inputPeak, std::abs (monoScratch[(size_t) i]));
+        inputPeak = juce::jmax (inputPeak, std::abs (monoInput));
 
         smoothedHz += glideCoeff * (targetHz - smoothedHz);
         const float phaseInc = twoPi * smoothedHz / (float) currentSampleRate;

@@ -3,6 +3,7 @@
 // reference tone, (2) tracks a detuned tone's cents offset, (3) respects the
 // Reference-A control, and (4) passes audio through completely untouched.
 #include "PluginProcessor.h"
+#include "tuner_oversized_regression.h"
 #include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
@@ -93,7 +94,7 @@ int main (int argc, char** argv)
         return renderUi (juce::File (argv[2]), minimumSize) ? 0 : 1;
     }
 
-    int fails = 0;
+    int fails = runTunerOversizedRegression();
 
     // 1) A4 = 440 Hz at reference 440 -> note 69 (A4), ~0 cents.
     double d1 = 0.0;

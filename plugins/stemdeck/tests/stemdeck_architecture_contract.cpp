@@ -161,7 +161,7 @@ void expectStemProviderRunsConfiguredOfflineSeparator()
 
     juce::String separatorMessage;
     const auto cacheDirectory = provider.getCacheDirectoryForSource (source);
-    if (! StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), source, cacheDirectory, separatorMessage))
+    if (! provider.runSeparatorCommand (provider.getSeparatorCommand(), source, cacheDirectory, separatorMessage))
         fail ("StemProvider configured offline separator command failed: " + separatorMessage.toStdString());
 
     auto result = provider.inspectCache (source);

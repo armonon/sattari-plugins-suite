@@ -33,7 +33,7 @@ public:
             if (! done)
             {
                 juce::String cliMsg;
-                if (StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), sourceFile, result.cacheDirectory, cliMsg))
+                if (provider.runSeparatorCommand (provider.getSeparatorCommand(), sourceFile, result.cacheDirectory, cliMsg))
                     done = true;
                 message = message.isNotEmpty() ? message + u8 (" \xe2\x80\xa2 ") + cliMsg : cliMsg;
             }
@@ -60,8 +60,19 @@ private:
     Callback callback;
 };
 
-StemProvider::StemProvider()
+StemProvider::StemProvider() : StemProvider (ComponentStoragePolicy::production()) {}
+
+StemProvider::StemProvider (ComponentStoragePolicy policy)
+    : storagePolicy (std::move (policy)),
+      neuralEngine (storagePolicy.isRestricted() ? std::unique_ptr<NeuralStemEngine>()
+                                                 : std::make_unique<NeuralStemEngine>())
 {
+    if (storagePolicy.isRestricted())
+    {
+        if (storagePolicy.isValid())
+            setCacheRoot (storagePolicy.root().getChildFile ("StemCache"));
+        return; // No environment, user config, model or external command discovery.
+    }
     setCacheRoot (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                     .getChildFile ("Sattari")
                     .getChildFile ("StemDeck")
@@ -134,15 +145,27 @@ StemProvider::StemProvider()
 
 bool StemProvider::neuralAvailable() const
 {
+    if (storagePolicy.isRestricted() || neuralEngine == nullptr)
+        return false;
     // Usable if the session is already up, or if a model file is sitting on disk
     // ready to be loaded on demand.
-    return neuralEngine.isAvailable()
+    return neuralEngine->isAvailable()
         || (NeuralStemEngine::isCompiledIn() && NeuralStemEngine::defaultModelFile().existsAsFile());
 }
 
 bool StemProvider::ensureNeuralModelLoaded (juce::String& message)
 {
-    if (neuralEngine.isAvailable())
+    if (storagePolicy.isRestricted())
+    {
+        message = "Neural models are disabled in restricted fixtures.";
+        return false;
+    }
+    if (neuralEngine == nullptr)
+    {
+        message = "Neural engine unavailable.";
+        return false;
+    }
+    if (neuralEngine->isAvailable())
         return true;
     if (! NeuralStemEngine::isCompiledIn())
     {
@@ -151,7 +174,7 @@ bool StemProvider::ensureNeuralModelLoaded (juce::String& message)
     }
 
     const juce::ScopedLock sl (neuralLoadLock);
-    if (neuralEngine.isAvailable())      // another pool thread won the race
+    if (neuralEngine->isAvailable())      // another pool thread won the race
         return true;
     if (neuralLoadAttempted)             // already failed once — don't retry per track
     {
@@ -166,7 +189,7 @@ bool StemProvider::ensureNeuralModelLoaded (juce::String& message)
         message = "neural model not found: " + modelFile.getFullPathName();
         return false;
     }
-    return neuralEngine.loadModel (modelFile, message);
+    return neuralEngine->loadModel (modelFile, message);
 }
 
 StemProvider::~StemProvider()
@@ -190,7 +213,7 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
     const double sr = reader->sampleRate;
 
     juce::AudioBuffer<float> d, b, m, v;
-    if (! neuralEngine.separate (input, sr, d, b, m, v, nullptr, message))
+    if (neuralEngine == nullptr || ! neuralEngine->separate (input, sr, d, b, m, v, nullptr, message))
         return false;
 
     cacheDirectory.createDirectory();
@@ -215,6 +238,11 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
 
 void StemProvider::setCacheRoot (const juce::File& root)
 {
+    if (! storagePolicy.permitsPath (root))
+    {
+        cacheRoot = juce::File();
+        return;
+    }
     cacheRoot = root;
     if (! cacheRoot.exists())
         cacheRoot.createDirectory();
@@ -227,6 +255,8 @@ juce::File StemProvider::getCacheRoot() const
 
 void StemProvider::setSeparatorCommand (juce::String command)
 {
+    if (storagePolicy.isRestricted())
+        return;
     separatorCommand = std::move (command);
 }
 
@@ -244,7 +274,11 @@ juce::String StemProvider::hashForFile (const juce::File& sourceFile)
 
 juce::File StemProvider::getCacheDirectoryForSource (const juce::File& sourceFile) const
 {
-    return cacheRoot.getChildFile (hashForFile (sourceFile));
+    if (cacheRoot == juce::File() || ! storagePolicy.permitsPath (cacheRoot)
+        || ! storagePolicy.permitsPath (sourceFile))
+        return {};
+    const auto directory = cacheRoot.getChildFile (hashForFile (sourceFile));
+    return storagePolicy.permitsPath (directory) ? directory : juce::File();
 }
 
 juce::String StemProvider::laneCacheName (int lane)
@@ -260,6 +294,15 @@ bool StemProvider::isCoreStemLane (int lane) noexcept
 
 void StemProvider::requestStemsAsync (const juce::File& sourceFile, Callback callback)
 {
+    if (storagePolicy.isRestricted())
+    {
+        Result result;
+        result.sourceFile = sourceFile;
+        result.message = "Separation jobs are disabled in restricted fixtures.";
+        if (callback)
+            callback (std::move (result));
+        return;
+    }
     if (! sourceFile.existsAsFile())
         return;
 
@@ -285,6 +328,11 @@ StemProvider::Result StemProvider::inspectCache (const juce::File& sourceFile) c
     Result result;
     result.sourceFile = sourceFile;
     result.cacheDirectory = getCacheDirectoryForSource (sourceFile);
+    if (result.cacheDirectory == juce::File())
+    {
+        result.message = "Cache access rejected: invalid or outside fixture storage.";
+        return result;
+    }
     result.cacheDirectory.createDirectory();
 
     for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
@@ -292,7 +340,7 @@ StemProvider::Result StemProvider::inspectCache (const juce::File& sourceFile) c
         auto& stem = result.stems[(size_t) lane];
         stem.lane = lane;
         stem.file = lane == DeckPlayer::fullMixStem ? sourceFile : result.cacheDirectory.getChildFile (laneCacheName (lane));
-        stem.ready = stem.file.existsAsFile();
+        stem.ready = storagePolicy.permitsPath (stem.file) && stem.file.existsAsFile();
         stem.status = stem.ready ? "ready" : (isCoreStemLane (lane) ? "missing_cached_offline_stem" : "source_full_mix");
     }
 
@@ -348,6 +396,13 @@ StemProvider::Status StemProvider::statusFromResult (const Result& result,
 
 StemProvider::Status StemProvider::getStatusForSource (const juce::File& sourceFile) const
 {
+    if (! storagePolicy.permitsPath (sourceFile) || ! storagePolicy.permitsPath (cacheRoot))
+    {
+        Status status;
+        status.headline = "Cache access rejected";
+        status.detail = "Invalid or outside fixture storage.";
+        return status;
+    }
     if (! sourceFile.existsAsFile())
     {
         Status status;
@@ -425,6 +480,11 @@ bool StemProvider::runSeparatorCommand (const juce::String& command,
                                         const juce::File& cacheDirectory,
                                         juce::String& message)
 {
+    if (storagePolicy.isRestricted())
+    {
+        message = "External separator commands are disabled in restricted fixtures.";
+        return false;
+    }
     if (command.trim().isEmpty())
     {
         message = "No offline separator command configured. Set SATTARI_STEMDECK_SEPARATOR_CMD.";

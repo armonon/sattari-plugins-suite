@@ -32,7 +32,8 @@ void setParam (juce::AudioProcessorValueTreeState& a, const juce::String& id, fl
 
 // Poll the bus until `pred(msg)` holds or we time out. Returns the last-read
 // message (so callers can assert on it) and whether the predicate was met.
-bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMessage&)>& pred,
+bool waitForSession (SattariBrainAudioProcessor& processor,
+                     const std::function<bool (const sattari::xplugin::SessionMessage&)>& pred,
                      sattari::xplugin::SessionMessage& out, int timeoutMs = 6000)
 {
     const int stepMs = 50;
@@ -45,6 +46,15 @@ bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMe
         }
         std::this_thread::sleep_for (std::chrono::milliseconds (stepMs));
     }
+    const auto detected = processor.detected();
+    auto& parameters = processor.parameters();
+    std::fprintf (stderr,
+        "Publication timeout: completedAttempts=%u lastResult=%s publish=%g manual=%g detectedValid=%d confidence=%g\n",
+        processor.publicationAttemptCount(),
+        sattari::xplugin::sessionPublishResultName (processor.lastPublicationResult()),
+        (double) parameters.getRawParameterValue ("brainPublish")->load(),
+        (double) parameters.getRawParameterValue ("brainManual")->load(),
+        (int) detected.valid, detected.confidence);
     return false;
 }
 } // namespace
@@ -116,9 +126,117 @@ static int checkSongKeyDetector()
     return 0;
 }
 
+// Independent analysis evidence for restricted test environments. This mode
+// never calls a bus reader or publisher, constructs an editor, or restores state.
+// It does not clear or replace the full publication contract below.
+static int checkAnalysisOnly()
+{
+    int fails = 0;
+    auto check = [&fails] (bool ok, const char* what)
+    {
+        if (! ok) { std::fprintf (stderr, "FAIL analysis-only: %s\n", what); ++fails; }
+    };
+    SattariBrainAudioProcessor processor;
+    auto& parameters = processor.parameters();
+    setParam (parameters, "brainPublish", 0.0f);
+    const auto* publish = parameters.getRawParameterValue ("brainPublish");
+    if (publish == nullptr || publish->load() != 0.0f)
+    {
+        std::fprintf (stderr, "FAIL analysis-only: publication was not disabled before prepare\n");
+        return 1;
+    }
+
+    constexpr double sr = 48000.0;
+    constexpr int block = 512;
+    processor.setRateAndBufferSizeDetails (sr, block);
+    processor.prepareToPlay (sr, block);
+    juce::AudioBuffer<float> buffer (2, block), original (2, block);
+    juce::MidiBuffer midi; // Empty: no learned MIDI action can enable publication.
+    bool bitExact = true, allFinite = true;
+    auto processAndCheck = [&]
+    {
+        original.makeCopyOf (buffer, true);
+        processor.processBlock (buffer, midi);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            bitExact = bitExact && std::memcmp (buffer.getReadPointer (ch),
+                original.getReadPointer (ch), sizeof (float) * block) == 0;
+            for (int i = 0; i < block; ++i)
+                allFinite = allFinite && std::isfinite (buffer.getSample (ch, i));
+        }
+    };
+    auto waitForDetected = [&] (const std::function<bool (const SattariBrainAudioProcessor::Detected&)>& pred)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (3);
+        do
+        {
+            if (pred (processor.detected())) return true;
+            std::this_thread::sleep_for (std::chrono::milliseconds (50));
+        }
+        while (std::chrono::steady_clock::now() < deadline);
+        return pred (processor.detected());
+    };
+
+    for (int pass = 0; pass < 8; ++pass)
+    {
+        buffer.clear();
+        processAndCheck();
+    }
+    const auto silent = processor.detected();
+    check (silent.energy == 0.0f && silent.transientId == 0,
+           "initial silence manufactured energy or an onset");
+
+    double phase[3] = {};
+    const double hz[3] = { 261.625565, 329.627557, 391.995436 };
+    for (int pass = 0; pass < 64; ++pass)
+    {
+        for (int i = 0; i < block; ++i)
+        {
+            float value = 0.0f;
+            for (int voice = 0; voice < 3; ++voice)
+            {
+                value += 0.18f * (float) std::sin (phase[voice]);
+                phase[voice] += juce::MathConstants<double>::twoPi * hz[voice] / sr;
+            }
+            buffer.setSample (0, i, value);
+            buffer.setSample (1, i, value);
+        }
+        processAndCheck();
+    }
+    check (waitForDetected ([] (const SattariBrainAudioProcessor::Detected& d)
+        { return d.energy > 0.1f && d.transientId > 0 && d.chordValid
+                 && d.chordRoot == 0 && d.chordQuality == 1; }),
+        "C-major chord, energy and onset were not detected in memory");
+    const auto tone = processor.detected();
+    check (std::isfinite (tone.confidence) && std::isfinite (tone.detuneCents)
+               && std::isfinite (tone.energy) && tone.energy >= 0.0f && tone.energy <= 1.0f,
+           "analysis produced invalid numeric readouts");
+
+    for (int pass = 0; pass < 100; ++pass)
+    {
+        buffer.clear();
+        processAndCheck();
+    }
+    check (waitForDetected ([tone] (const SattariBrainAudioProcessor::Detected& d)
+        { return d.energy < tone.energy * 0.05f && d.transientId == tone.transientId; }),
+        "silence did not decay energy or manufactured a new onset");
+    processor.releaseResources(); // Join before inspecting final publication counters.
+    check (bitExact && allFinite, "audio passthrough was not finite and bit exact");
+    check (publish->load() == 0.0f && processor.publicationAttemptCount() == 0
+               && processor.lastPublicationResult() == sattari::xplugin::SessionPublishResult::notAttempted
+               && ! processor.detected().publishing,
+           "disabled analysis mode attempted publication");
+    std::printf ("Sattari Compass analysis-only %s (%d); publication NOT TESTED\n",
+                 fails == 0 ? "ok" : "FAILED", fails);
+    return fails == 0 ? 0 : 1;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (argc == 2 && juce::String (argv[1]) == "--analysis-only")
+        return checkAnalysisOnly();
 
     if (argc == 3 && juce::String (argv[1]) == "--render-ui")
     {
@@ -137,6 +255,9 @@ int main (int argc, char** argv)
     };
 
     SattariBrainAudioProcessor proc;
+    check (proc.publicationAttemptCount() == 0
+               && proc.lastPublicationResult() == sattari::xplugin::SessionPublishResult::notAttempted,
+           "constructor unexpectedly attempted publication");
     auto& a = proc.parameters();
     const double sr = 48000.0; const int block = 512;
     proc.prepareToPlay (sr, block);
@@ -194,7 +315,7 @@ int main (int argc, char** argv)
     setParam (a, "brainMaqam",        5.0f);
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.chordRoot == 9 && s.chordQuality == 4
                 && s.timeSigNum == 6 && s.timeSigDen == 8
@@ -236,7 +357,7 @@ int main (int argc, char** argv)
             proc.processBlock (buf, midi);
         }
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([priorTransient] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [priorTransient] (const sattari::xplugin::SessionMessage& s)
         {
             return s.transientId > priorTransient && s.energy > 0.1f;
         }, m);
@@ -268,9 +389,8 @@ int main (int argc, char** argv)
             proc.processBlock (buf, midi);
         }
         proc.requestRescan();
-        proc.analyseNow();
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.chordRoot == 0 && s.chordQuality == 1;
         }, m);
@@ -283,7 +403,7 @@ int main (int argc, char** argv)
     setParam (a, "brainManualScale", 1.0f);   // minor
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return s.root == 7 && s.scale == 1;
         }, m);
@@ -295,7 +415,7 @@ int main (int argc, char** argv)
     setParam (a, "brainReferenceHz", 432.0f);
     {
         sattari::xplugin::SessionMessage m;
-        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        const bool ok = waitForSession (proc, [] (const sattari::xplugin::SessionMessage& s)
         {
             return std::abs (s.referenceHz - 432.0) < 0.5;
         }, m);

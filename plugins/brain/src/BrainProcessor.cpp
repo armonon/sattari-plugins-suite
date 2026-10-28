@@ -126,6 +126,8 @@ void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     onsetEnvelope = 0.0f;
     onsetRefractorySamples = 0;
     publishingNow.store (false);
+    publicationResult.store (sattari::xplugin::SessionPublishResult::notAttempted);
+    publicationAttempts.store (0);
     refreshDetectedFrame();
 
     workerRunning.store (true, std::memory_order_release);
@@ -410,7 +412,10 @@ void SattariBrainAudioProcessor::publishCurrent()
     msg.referenceHz  = refOverride ? (double) param ("brainReferenceHz")
                                    : 440.0 * std::pow (2.0, detDetuneCents.load() / 1200.0);
 
-    publishingNow.store (sattari::xplugin::publishSessionState ("brain", msg));
+    const auto result = sattari::xplugin::publishSessionStateDetailed ("brain", msg);
+    publicationResult.store (result, std::memory_order_relaxed);
+    publicationAttempts.fetch_add (1, std::memory_order_relaxed);
+    publishingNow.store (result == sattari::xplugin::SessionPublishResult::published);
     refreshDetectedFrame();
 }
 

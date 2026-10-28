@@ -1,56 +1,97 @@
 #!/usr/bin/env python3
-"""Verify every factory-preset parameter ID is a real parameter of its plugin.
+"""Check independent literal evidence for inline factory-preset IDs.
 
-A wrong ID in addFactoryPreset() silently does nothing (SattariPresetManager ignores
-unknown IDs), so the compiler can't catch it. A real param ID always appears as a quoted
-string somewhere in the plugin's sources — in its declaration AND in the editor's
-parameter attachment (SliderAttachment(apvts, "id", ...)). Module-backed plugins declare
-params in core/.../modules/*.h, so those headers are folded in too.
-
-We flag a preset ID only if it appears NOWHERE as a quoted string. Concatenated IDs
-(e.g. "kick"+"Decay") won't appear literally — those are listed separately as "review".
+This is a source heuristic, not a runtime parameter-registry proof. Preset calls
+and numeric key/value entries cannot provide their own supporting evidence.
+Generated parameter IDs and indirect preset arguments require review.
 """
-import os, re, glob, sys
+import argparse
+import json
+from pathlib import Path
+import re
 
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-plug = os.path.join(root, 'plugins')
-coreinc = os.path.join(root, 'core', 'include')
-bad = 0; review = 0; checked = 0
+PAIR = re.compile(r'\{\s*"([A-Za-z0-9_]+)"\s*,\s*[-+0-9.]')
+TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*[\s\S]*?\*/')
 
-def quoted_strings(text):
-    return set(re.findall(r'"([A-Za-z0-9_]+)"', text))
 
-for slug in sorted(os.listdir(plug)):
-    srcdir = os.path.join(plug, slug, 'src')
-    if not os.path.isdir(srcdir):
-        continue
-    files = [f for f in glob.glob(os.path.join(srcdir, '**', '*'), recursive=True)
-             if f.endswith(('.cpp', '.h', '.mm')) and os.path.isfile(f)]
-    text = '\n'.join(open(f, encoding='utf-8', errors='ignore').read() for f in files)
-    if 'addFactoryPreset' not in text:
-        continue
-    checked += 1
+def without_comments(text):
+    return TOKEN.sub(lambda m: ' ' * len(m[0]) if m[0].startswith(('/',)) else m[0], text)
 
-    # Fold in any included core module headers (module-backed plugins declare params there).
-    mods = re.findall(r'#include\s*<(sattari_audio_core/[^>]+)>', text)
-    for m in mods:
-        p = os.path.join(coreinc, m)
-        if os.path.isfile(p):
-            text += '\n' + open(p, encoding='utf-8', errors='ignore').read()
 
-    known = quoted_strings(text)
-    # Preset IDs: the key of each {"id", <number>} pair in a PresetValues list.
-    preset_ids = set(re.findall(r'\{\s*"([A-Za-z0-9_]+)"\s*,\s*[-0-9.]', text))
-    # Exclude ids that are choice-option lookups etc.: only those inside addFactoryPreset(...)
-    # calls. Cheap heuristic — restrict to ids that also look like params (short, camel).
-    unknown = sorted(i for i in preset_ids if i not in known)
+def preset_calls(text):
+    """Balanced parentheses, ignoring quoted string/character punctuation."""
+    masked = TOKEN.sub(lambda m: ' ' * len(m[0]), text)
+    calls = []
+    for match in re.finditer(r'(?:\.|->)\s*addFactoryPreset\s*\(', masked):
+        depth = 1
+        end = match.end()
+        while end < len(masked) and depth:
+            depth += (masked[end] == '(') - (masked[end] == ')')
+            end += 1
+        if depth == 0:
+            calls.append((match.start(), end, text[match.end():end - 1]))
+    return calls
 
-    npresets = len(re.findall(r'addFactoryPreset', text))
-    if unknown:
-        bad += 1
-        print(f"  X {slug}: {npresets} presets — IDs not found anywhere: {unknown}")
+
+def analyze(text):
+    text = without_comments(text)
+    calls = preset_calls(text)
+    independent = list(text)
+    ids = set()
+    indirect = 0
+    for start, end, body in calls:
+        keys = set(PAIR.findall(body))
+        ids.update(keys)
+        # Nonliteral keys or values may evade the deliberately narrow matcher.
+        if not keys or re.search(r'\{\s*[^\s{"}][^,{}]*,', body):
+            indirect += 1
+        independent[start:end] = ' ' * (end - start)
+    independent = ''.join(independent)
+    # A named PresetValues list must not count as independent ID evidence either.
+    independent = PAIR.sub(
+        lambda m: m[0] if re.search(r'ParameterID\s*$', independent[max(0, m.start() - 40):m.start()]) else '{ ',
+        independent)
+    known = set(re.findall(r'"([A-Za-z0-9_]+)"', independent))
+    generated = bool(re.search(r'\bParameterID\s*[({]\s*[^"\s]|\b(?:prefix|pfx)\s*\+', independent))
+    missing = sorted(ids - known)
+    status = 'review' if generated or indirect else 'missing-literal-evidence' if missing else 'literal-evidence'
+    if not calls:
+        status = 'not-applicable'
+    return {'status': status, 'preset_calls': len(calls), 'preset_ids': sorted(ids),
+            'missing_literal_ids': missing, 'generated_parameter_ids': generated,
+            'indirect_or_unparsed_calls': indirect,
+            'limit': 'Independent quoted-string evidence does not establish that an ID is registered at runtime.'}
+
+
+def inspect(root):
+    results = []
+    for plugin in sorted((root / 'plugins').iterdir()):
+        src = plugin / 'src'
+        if not src.is_dir():
+            continue
+        files = sorted(p for p in src.rglob('*') if p.suffix in ('.cpp', '.h', '.mm') and p.is_file())
+        text = '\n'.join(p.read_text(encoding='utf-8', errors='replace') for p in files)
+        for module in sorted(set(re.findall(r'#include\s*<(sattari_audio_core/[^>]+)>', text))):
+            header = root / 'core/include' / module
+            if header.is_file():
+                text += '\n' + header.read_text(encoding='utf-8', errors='replace')
+        results.append({'plugin': plugin.name, **analyze(text)})
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--json', action='store_true')
+    args = parser.parse_args()
+    results = inspect(args.root)
+    if args.json:
+        print(json.dumps(results, indent=2))
     else:
-        print(f"  ok {slug}: {npresets} presets, all preset IDs present in sources")
+        for row in results:
+            print(f"{row['status']} {row['plugin']}: {row['preset_calls']} calls; unresolved IDs {row['missing_literal_ids']}")
+    return 1 if any(r['status'] == 'missing-literal-evidence' for r in results) else 2 if any(r['status'] == 'review' for r in results) else 0
 
-print(f"\n{checked} plugins with factory presets; {bad} with genuinely-missing IDs")
-sys.exit(1 if bad else 0)
+
+if __name__ == '__main__':
+    raise SystemExit(main())
